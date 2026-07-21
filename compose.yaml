@@ -1,0 +1,10 @@
+services:
+  tracker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - tracker-data:/app/data
+
+volumes:
+  tracker-data:

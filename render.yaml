@@ -1,0 +1,19 @@
+services:
+  - type: worker
+    name: pokemon-drop-tracker
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: CHECK_INTERVAL_SECONDS
+        value: "300"
+      - key: CHECK_JITTER_SECONDS
+        value: "30"
+      - key: MATCH_TERMS
+        value: "30th celebration"
+      - key: PRODUCT_TERMS
+        value: "elite trainer box,booster bundle,3 pack,three pack"
+      - key: DISCOVERY_URLS
+        value: "https://www.pokemoncenter.com/category/trading-card-game"
+      - key: DISCORD_WEBHOOK_URL
+        sync: false

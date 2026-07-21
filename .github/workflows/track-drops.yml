@@ -1,0 +1,62 @@
+name: Track Pokemon Center drops
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      send_test_alert:
+        description: "Send a test Discord alert instead of checking stock"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pokemon-drop-tracker
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      TARGET_URLS: ${{ vars.TARGET_URLS }}
+      DISCOVERY_URLS: https://www.pokemoncenter.com/category/trading-card-game
+      MATCH_TERMS: 30th celebration
+      PRODUCT_TERMS: elite trainer box,booster bundle,3 pack,three pack
+      STATE_FILE: data/state.json
+
+    steps:
+      - name: Check out tracker
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install tracker
+        run: pip install .
+
+      - name: Send test alert
+        if: ${{ inputs.send_test_alert }}
+        run: drop-tracker --test-notification
+
+      - name: Check product availability
+        if: ${{ !inputs.send_test_alert }}
+        run: drop-tracker --once
+
+      - name: Save availability state
+        if: ${{ !inputs.send_test_alert }}
+        run: |
+          if [ -f data/state.json ] && [ -n "$(git status --porcelain -- data/state.json)" ]; then
+            git add data/state.json
+            git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "chore: update drop tracker state"
+            git push
+          fi
