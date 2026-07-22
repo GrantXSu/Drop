@@ -6,21 +6,28 @@ entirely manual. No browser page needs to remain open when it runs in the cloud.
 
 ## What it does
 
-- Searches the official Pokémon Center TCG category for 30th Celebration Elite
-  Trainer Boxes, Booster Bundles, 3-Pack products, Sylveon ex and Greninja ex
-  boxes, Poster and Binder Collections, Mew and Mewtwo Figure Collections, and
-  the Ditto Premium Collection.
+- Watches Pokémon Center's New Releases, TCG, Plush, and Figures & Pins category
+  pages for newly listed products and restocks.
+- Gives TCG products prominent priority alerts while still notifying for
+  plushies, figures, pins, and other merchandise shown in New Releases.
 - Supports exact product URLs as soon as Pokémon Center publishes them.
-- Recognizes structured product availability and enabled Add to Cart/Preorder
-  buttons.
-- Sends an alert with a clickable official product link only when a product
-  changes to available.
+- Sends clickable alerts for newly available listings and transitions from
+  sold out to available.
+- Saves the first broad scan as a baseline without flooding Discord with every
+  product that was already listed.
 - Treats blocks, rate limits, and ambiguous pages as unknown instead of sending
   false availability alerts.
 
 The tracker does not bypass queues or CAPTCHAs and does not automate checkout.
 Keep the default five-minute interval or make it longer. Repeated rapid requests
 can trigger Pokémon Center's protections.
+
+Category pages do not expose the entire historical Pokémon Center catalog at
+once. The tracker catches products visible on its monitored pages; an older
+product outside those pages needs to be added to `TARGET_URLS` for direct
+restock monitoring. Pokémon Center also uses anti-bot protection and may block
+cloud checks even at a conservative rate. The tracker does not bypass that
+protection; blocked checks are logged and never produce false stock alerts.
 
 ## Configure it
 

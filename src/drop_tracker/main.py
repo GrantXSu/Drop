@@ -23,6 +23,12 @@ from bs4 import BeautifulSoup
 
 LOG = logging.getLogger("drop_tracker")
 DEFAULT_DISCOVERY_URL = "https://www.pokemoncenter.com/category/trading-card-game"
+DEFAULT_DISCOVERY_URLS = (
+    "https://www.pokemoncenter.com/category/new-releases",
+    DEFAULT_DISCOVERY_URL,
+    "https://www.pokemoncenter.com/category/plush",
+    "https://www.pokemoncenter.com/category/figures-and-pins",
+)
 
 
 class Availability(str, Enum):
@@ -32,11 +38,20 @@ class Availability(str, Enum):
 
 
 @dataclass(frozen=True)
+class ProductListing:
+    url: str
+    title: str
+    availability: Availability
+    is_tcg: bool
+
+
+@dataclass(frozen=True)
 class Config:
     target_urls: tuple[str, ...]
     discovery_urls: tuple[str, ...]
     match_terms: tuple[str, ...]
     product_terms: tuple[str, ...]
+    track_all_products: bool
     interval_seconds: int
     jitter_seconds: int
     request_timeout: float
@@ -53,7 +68,7 @@ class Config:
     def from_env(cls) -> "Config":
         target_urls = _split_values(os.getenv("TARGET_URLS", ""))
         discovery_urls = _split_values(
-            os.getenv("DISCOVERY_URLS", DEFAULT_DISCOVERY_URL)
+            os.getenv("DISCOVERY_URLS", ",".join(DEFAULT_DISCOVERY_URLS))
         )
         match_terms = tuple(
             term.casefold()
@@ -84,6 +99,8 @@ class Config:
             discovery_urls=discovery_urls,
             match_terms=match_terms,
             product_terms=product_terms,
+            track_all_products=os.getenv("TRACK_ALL_PRODUCTS", "true").casefold()
+            in ("1", "true", "yes"),
             interval_seconds=interval,
             jitter_seconds=jitter,
             request_timeout=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "20")),
@@ -158,21 +175,89 @@ def detect_availability(page: str) -> Availability:
     return Availability.UNKNOWN
 
 
+def _looks_like_tcg(value: str) -> bool:
+    normalized = _normalize(value)
+    return any(
+        term in normalized
+        for term in (
+            "pokemon tcg",
+            "trading card game",
+            "booster",
+            "elite trainer box",
+            "battle deck",
+            "trainer toolkit",
+        )
+    )
+
+
+def _clean_product_title(value: str, url: str) -> str:
+    title = re.sub(
+        r"\b(sold out|out of stock|preorder)\b", "", value, flags=re.IGNORECASE
+    )
+    title = re.sub(r"\$\d+(?:\.\d{2})?", "", title)
+    title = " ".join(title.split()).strip(" -|")
+    if title:
+        return title
+    slug = urlparse(url).path.rstrip("/").split("/")[-1]
+    return slug.replace("-", " ").title()
+
+
+def discover_product_listings(page: str, base_url: str) -> dict[str, ProductListing]:
+    soup = BeautifulSoup(page, "html.parser")
+    base_host = urlparse(base_url).netloc
+    collected: dict[str, dict[str, list[str]]] = {}
+
+    for link in soup.find_all("a", href=True):
+        href = urljoin(base_url, link["href"]).split("#", 1)[0]
+        parsed = urlparse(href)
+        if parsed.netloc != base_host or "/product/" not in parsed.path:
+            continue
+        entry = collected.setdefault(href, {"text": [], "titles": []})
+        text = link.get_text(" ", strip=True)
+        if text:
+            entry["text"].append(text)
+            entry["titles"].append(text)
+        aria_label = link.get("aria-label")
+        if aria_label:
+            entry["titles"].append(aria_label)
+        for image in link.find_all("img", alt=True):
+            if image["alt"]:
+                entry["titles"].append(image["alt"])
+
+    listings: dict[str, ProductListing] = {}
+    for url, values in collected.items():
+        combined = " ".join(values["text"])
+        normalized = _normalize(combined)
+        availability = (
+            Availability.UNAVAILABLE
+            if "sold out" in normalized or "out of stock" in normalized
+            else Availability.AVAILABLE
+        )
+        candidates = [
+            _clean_product_title(candidate, url)
+            for candidate in values["titles"]
+            if candidate
+        ]
+        title = max(candidates, key=len, default=_clean_product_title("", url))
+        listings[url] = ProductListing(
+            url=url,
+            title=title,
+            availability=availability,
+            is_tcg="/trading-card-game" in urlparse(base_url).path
+            or _looks_like_tcg(f"{title} {url}"),
+        )
+    return listings
+
+
 def discover_product_urls(
     page: str,
     base_url: str,
     match_terms: tuple[str, ...],
     product_terms: tuple[str, ...] = (),
 ) -> set[str]:
-    soup = BeautifulSoup(page, "html.parser")
-    base_host = urlparse(base_url).netloc
     matches: set[str] = set()
-    for link in soup.find_all("a", href=True):
-        href = urljoin(base_url, link["href"]).split("#", 1)[0]
-        parsed = urlparse(href)
-        if parsed.netloc != base_host or "/product/" not in parsed.path:
-            continue
-        searchable = _normalize(f"{link.get_text(' ', strip=True)} {parsed.path}")
+    for listing in discover_product_listings(page, base_url).values():
+        searchable = _normalize(f"{listing.title} {urlparse(listing.url).path}")
         matches_collection = all(
             _normalize(term) in searchable for term in match_terms
         )
@@ -180,7 +265,7 @@ def discover_product_urls(
             _normalize(term) in searchable for term in product_terms
         )
         if matches_collection and matches_product:
-            matches.add(href)
+            matches.add(listing.url)
     return matches
 
 
@@ -224,68 +309,152 @@ class Tracker:
                 LOG.warning("Request blocked or rate-limited (%s): %s", response.status_code, url)
                 return None
             response.raise_for_status()
+            challenge_markers = (
+                "incapsula incident id",
+                "pardon our interruption",
+                "distil_referrer",
+            )
+            if any(
+                marker in response.text.casefold() for marker in challenge_markers
+            ):
+                LOG.warning("Pokémon Center returned an anti-bot challenge: %s", url)
+                return None
             return response.text
         except httpx.HTTPError as exc:
             LOG.warning("Could not check %s: %s", url, exc)
             return None
 
-    def _target_urls(self) -> set[str]:
-        urls = set(self.config.target_urls)
+    def _matches_focus(self, listing: ProductListing) -> bool:
+        searchable = _normalize(f"{listing.title} {urlparse(listing.url).path}")
+        return all(
+            _normalize(term) in searchable for term in self.config.match_terms
+        ) and (
+            not self.config.product_terms
+            or any(
+                _normalize(term) in searchable for term in self.config.product_terms
+            )
+        )
+
+    def _discover_listings(self) -> dict[str, ProductListing]:
+        listings: dict[str, ProductListing] = {}
         for discovery_url in self.config.discovery_urls:
             page = self._fetch(discovery_url)
             if page is None:
                 continue
-            discovered = discover_product_urls(
-                page,
-                discovery_url,
-                self.config.match_terms,
-                self.config.product_terms,
-            )
+            discovered = discover_product_listings(page, discovery_url)
+            if not self.config.track_all_products:
+                discovered = {
+                    url: listing
+                    for url, listing in discovered.items()
+                    if self._matches_focus(listing)
+                }
             if discovered:
-                LOG.info("Found %d matching product link(s)", len(discovered))
-            urls.update(discovered)
-        return urls
+                LOG.info(
+                    "Found %d product listing(s) on %s",
+                    len(discovered),
+                    discovery_url,
+                )
+            for url, listing in discovered.items():
+                existing = listings.get(url)
+                if existing is None:
+                    listings[url] = listing
+                    continue
+                listings[url] = ProductListing(
+                    url=url,
+                    title=max(existing.title, listing.title, key=len),
+                    availability=(
+                        Availability.AVAILABLE
+                        if Availability.AVAILABLE
+                        in (existing.availability, listing.availability)
+                        else Availability.UNAVAILABLE
+                    ),
+                    is_tcg=existing.is_tcg or listing.is_tcg,
+                )
 
-    def check_once(self) -> None:
-        targets = self._target_urls()
-        if not targets:
-            LOG.info("No matching product pages discovered yet")
-            return
-
-        changed = False
-        for url in sorted(targets):
+        for url in self.config.target_urls:
+            if url in listings:
+                continue
             page = self._fetch(url)
             if page is None:
                 continue
-            status = detect_availability(page)
+            soup = BeautifulSoup(page, "html.parser")
+            heading = soup.find("h1")
+            title = _clean_product_title(
+                heading.get_text(" ", strip=True) if heading else "", url
+            )
+            listings[url] = ProductListing(
+                url=url,
+                title=title,
+                availability=detect_availability(page),
+                is_tcg=_looks_like_tcg(f"{title} {url}"),
+            )
+        return listings
+
+    def check_once(self) -> None:
+        listings = self._discover_listings()
+        if not listings:
+            LOG.info("No product listings discovered; leaving saved state unchanged")
+            return
+
+        initialized = self.state.get("__catalog_initialized__") == "true"
+        changed = False
+        for url, listing in sorted(listings.items()):
+            status = listing.availability
             previous = self.state.get(url)
-            LOG.info("%s: %s", status, url)
+            LOG.info("%s: %s (%s)", status, listing.title, url)
             if status == Availability.UNKNOWN:
                 continue
             self.state[url] = status.value
             changed = changed or previous != status.value
-            if status == Availability.AVAILABLE and previous != status.value:
+            if not initialized or status != Availability.AVAILABLE:
+                continue
+            event = None
+            if previous is None:
+                event = "NEW DROP"
+            elif previous == Availability.UNAVAILABLE.value:
+                event = "RESTOCK"
+            if event:
+                priority = "🔥 TCG PRIORITY" if listing.is_tcg else "NEW MERCH"
                 self.notify(
-                    "Pokémon Center item may be available",
-                    "Availability changed to **AVAILABLE**.\n\n"
+                    f"{priority}: {event}",
+                    f"**{listing.title}**\n\n"
+                    f"Status: **{event}**\n\n"
                     f"[Open this product on Pokémon Center]({url})\n\n"
                     "Open the official page and complete checkout manually.",
                     url,
+                    is_tcg=listing.is_tcg,
                 )
+        if not initialized:
+            self.state["__catalog_initialized__"] = "true"
+            changed = True
+            LOG.info(
+                "Saved initial catalog baseline; future new products and restocks "
+                "will trigger alerts"
+            )
         if changed:
             self._save_state()
 
-    def notify(self, subject: str, message: str, url: str | None = None) -> None:
+    def notify(
+        self,
+        subject: str,
+        message: str,
+        url: str | None = None,
+        is_tcg: bool = False,
+    ) -> None:
         sent = False
         if self.config.discord_webhook_url:
             payload = {
-                "content": "🚨 **Pokémon Center availability alert**",
+                "content": (
+                    "🔥🔥 **TCG DROP — PRIORITY ALERT**"
+                    if is_tcg
+                    else "🚨 **Pokémon Center merchandise alert**"
+                ),
                 "embeds": [
                     {
                         "title": subject,
                         "description": message,
                         "url": url,
-                        "color": 0xE3350D,
+                        "color": 0xFFCB05 if is_tcg else 0xE3350D,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                 ],
