@@ -6,6 +6,10 @@ entirely manual. No browser page needs to remain open when it runs in the cloud.
 
 ## What it does
 
+- Runs a visible local Chrome session that detects Pokémon Center's virtual
+  waiting room and sends an urgent Discord early-warning alert.
+- Preserves the live queue page without refreshing after a queue is detected.
+- Distinguishes the virtual queue from Error 17 and anti-bot block pages.
 - Watches Pokémon Center's New Releases, TCG, Plush, and Figures & Pins category
   pages for newly listed products and restocks.
 - Gives TCG products prominent priority alerts while still notifying for
@@ -28,6 +32,10 @@ product outside those pages needs to be added to `TARGET_URLS` for direct
 restock monitoring. Pokémon Center also uses anti-bot protection and may block
 cloud checks even at a conservative rate. The tracker does not bypass that
 protection; blocked checks are logged and never produce false stock alerts.
+
+Pokémon Center officially states that a virtual queue does not necessarily mean
+a product is launching. Treat the queue notification as an urgent early warning,
+not confirmation of inventory.
 
 ## Configure it
 
@@ -64,6 +72,26 @@ drop-tracker --once
 pytest
 ```
 
+## Run the queue detector
+
+The local queue detector is the recommended setup because Pokémon Center blocks
+GitHub's cloud IP addresses and GitHub schedules can run hours late.
+
+```sh
+cd ~/Drop
+source .venv/bin/activate
+pip install -e '.[dev]'
+set -a; source .env; set +a
+drop-queue-watcher --test-notification
+drop-queue-watcher
+```
+
+A dedicated Chrome window opens and reloads Pokémon Center approximately every
+90–105 seconds. Keep Terminal, Chrome, and the computer running. When the queue
+appears, the watcher sends Discord a clickable warning, brings Chrome forward,
+and stops reloading so the live queue session remains intact. It never bypasses
+the queue or automates checkout.
+
 To run continuously with Docker:
 
 ```sh
@@ -71,10 +99,10 @@ docker compose up --build -d
 docker compose logs -f tracker
 ```
 
-## Run free with GitHub Actions
+## Manual GitHub Actions fallback
 
-The included workflow checks every five minutes without requiring your computer
-to stay on:
+The GitHub workflow is manual only. Scheduled checks were disabled because
+GitHub started them hours late and Pokémon Center timed out every cloud request.
 
 1. Push this project to a public GitHub repository.
 2. Open **Settings → Secrets and variables → Actions → Secrets**.
@@ -86,11 +114,7 @@ Official product URLs can be added later under **Settings → Secrets and
 variables → Actions → Variables** as a variable named `TARGET_URLS`. Separate
 multiple URLs with commas.
 
-GitHub schedules can start late during busy periods, so a five-minute schedule
-is not a guarantee that every short-lived restock will be caught. GitHub may
-disable scheduled workflows on public repositories after 60 days without
-repository activity; re-enable the workflow from the Actions page if that
-happens.
+Do not rely on GitHub Actions for live drop detection.
 
 ## Run continuously on Render
 
@@ -116,4 +140,5 @@ already available when the replacement starts.
 drop-tracker                     Run continuously
 drop-tracker --once              Check once and exit
 drop-tracker --test-notification Test Discord, then exit
+drop-queue-watcher               Watch the virtual queue in local Chrome
 ```

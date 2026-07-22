@@ -1,8 +1,6 @@
 name: Track Pokemon Center drops
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       send_test_alert:
