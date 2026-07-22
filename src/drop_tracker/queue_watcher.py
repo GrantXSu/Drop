@@ -223,6 +223,8 @@ def main() -> None:
         level=os.getenv("LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    # httpx logs complete request URLs, which would expose a Discord webhook token.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     args = parse_args()
     watcher = QueueWatcher(QueueConfig.from_env())
     if args.test_notification:
