@@ -26,7 +26,10 @@ jobs:
       TARGET_URLS: ${{ vars.TARGET_URLS }}
       DISCOVERY_URLS: https://www.pokemoncenter.com/category/trading-card-game
       MATCH_TERMS: 30th celebration
-      PRODUCT_TERMS: elite trainer box,booster bundle,3 pack,three pack
+      PRODUCT_TERMS: >-
+        elite trainer box,booster bundle,3 pack,three pack,sylveon ex,
+        greninja ex,poster collection,binder collection,mew figure collection,
+        mewtwo figure collection,ditto premium collection
       STATE_FILE: data/state.json
 
     steps:

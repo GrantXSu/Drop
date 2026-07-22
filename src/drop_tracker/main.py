@@ -69,7 +69,10 @@ class Config:
             for term in _split_values(
                 os.getenv(
                     "PRODUCT_TERMS",
-                    "elite trainer box,booster bundle,3 pack,three pack",
+                    "elite trainer box,booster bundle,3 pack,three pack,"
+                    "sylveon ex,greninja ex,poster collection,binder collection,"
+                    "mew figure collection,mewtwo figure collection,"
+                    "ditto premium collection",
                 )
             )
         )

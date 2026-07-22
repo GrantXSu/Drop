@@ -7,7 +7,9 @@ entirely manual. No browser page needs to remain open when it runs in the cloud.
 ## What it does
 
 - Searches the official Pokémon Center TCG category for 30th Celebration Elite
-  Trainer Boxes, Booster Bundles, and 3-Pack products.
+  Trainer Boxes, Booster Bundles, 3-Pack products, Sylveon ex and Greninja ex
+  boxes, Poster and Binder Collections, Mew and Mewtwo Figure Collections, and
+  the Ditto Premium Collection.
 - Supports exact product URLs as soon as Pokémon Center publishes them.
 - Recognizes structured product availability and enabled Add to Cart/Preorder
   buttons.

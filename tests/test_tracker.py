@@ -61,3 +61,37 @@ def test_discovers_matching_official_product_links() -> None:
         "https://www.pokemoncenter.com/product/457/"
         "pokemon-30th-celebration-3-pack-blister",
     }
+
+
+def test_discovers_additional_30th_collection_products() -> None:
+    product_names = (
+        "Sylveon ex Box",
+        "Greninja ex Box",
+        "Poster Collection",
+        "Binder Collection",
+        "Mew Figure Collection",
+        "Mewtwo Figure Collection",
+        "Ditto Premium Collection",
+    )
+    page = "".join(
+        f'<a href="/product/{index}/30th-celebration-{name.casefold().replace(" ", "-")}">'
+        f"30th Celebration {name}</a>"
+        for index, name in enumerate(product_names, start=1)
+    )
+
+    matches = discover_product_urls(
+        page,
+        "https://www.pokemoncenter.com/category/trading-card-game",
+        ("30th celebration",),
+        (
+            "sylveon ex",
+            "greninja ex",
+            "poster collection",
+            "binder collection",
+            "mew figure collection",
+            "mewtwo figure collection",
+            "ditto premium collection",
+        ),
+    )
+
+    assert len(matches) == len(product_names)

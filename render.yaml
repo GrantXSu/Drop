@@ -12,7 +12,7 @@ services:
       - key: MATCH_TERMS
         value: "30th celebration"
       - key: PRODUCT_TERMS
-        value: "elite trainer box,booster bundle,3 pack,three pack"
+        value: "elite trainer box,booster bundle,3 pack,three pack,sylveon ex,greninja ex,poster collection,binder collection,mew figure collection,mewtwo figure collection,ditto premium collection"
       - key: DISCOVERY_URLS
         value: "https://www.pokemoncenter.com/category/trading-card-game"
       - key: DISCORD_WEBHOOK_URL
