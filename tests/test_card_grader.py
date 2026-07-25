@@ -806,6 +806,7 @@ def test_ui_collapses_detected_findings() -> None:
     assert 'id="capture-photo"' in response.text
     assert 'id="native-camera-trigger"' in response.text
     assert "Analyze captured card" in response.text
+    assert "height:100dvh" in response.text
     assert "3 card analyses per UTC day" in response.text
     assert "$9.99" in response.text
     assert "$59.99" in response.text
