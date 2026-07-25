@@ -694,6 +694,8 @@ def test_catalog_reference_grades_visible_surface_scratch() -> None:
     )
     assert clean_analysis.features["surface_assessed"] == 1.0
     assert clean_analysis.features["surface_damage"] == 0.0
+    assert clean_analysis.features["corner_defect_load"] == 0.0
+    assert clean_analysis.features["edge_defect_load"] == 0.0
 
     analysis = analyze_image(encoded.tobytes(), side="front")
     cv2.line(analysis.image, (130, 170), (620, 830), (245, 245, 245), 5)
@@ -716,6 +718,29 @@ def test_catalog_reference_grades_visible_surface_scratch() -> None:
     surface = category_subgrades(analysis.features, None)[-1]
     assert surface["score"] is not None
     assert surface["score"] < 10.0
+
+    border_analysis = analyze_image(encoded.tobytes(), side="front")
+    cv2.line(border_analysis.image, (20, 20), (75, 75), (5, 5, 5), 5)
+    cv2.line(border_analysis.image, (25, 250), (25, 700), (5, 5, 5), 4)
+    apply_reference_baseline(
+        border_analysis,
+        {
+            "id": "surface-reference",
+            "confidence": 1.0,
+            "reference_features": reference_features,
+        },
+    )
+    finding_types = {
+        finding["type"] for finding in border_analysis.diagnostics["defects"]
+    }
+    assert "Front corner anomaly" in finding_types
+    assert "Front edge anomaly" in finding_types
+    categories = {
+        item["key"]: item
+        for item in category_subgrades(border_analysis.features, None)
+    }
+    assert categories["corners"]["score"] < 10.0
+    assert categories["edges"]["score"] < 10.0
 
 
 def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:

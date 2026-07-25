@@ -150,9 +150,10 @@ def _profile_from_analysis(analysis: CardAnalysis) -> Tuple[str, str, str]:
     }
     features["centering_distances"] = analysis.diagnostics["centering"]["distances"]
     features["card_dimensions"] = analysis.diagnostics["centering"]["card_dimensions"]
+    features["profile_version"] = 2
     thumbnail = cv2.resize(analysis.image, (256, 358), interpolation=cv2.INTER_AREA)
     success, encoded = cv2.imencode(
-        ".jpg", thumbnail, [cv2.IMWRITE_JPEG_QUALITY, 72]
+        ".jpg", thumbnail, [cv2.IMWRITE_JPEG_QUALITY, 90]
     )
     if success:
         features["reference_thumbnail"] = base64.b64encode(
@@ -323,6 +324,7 @@ def sync_catalog(
                             or not existing["perceptual_hash"]
                             or "centering_distances" not in reference
                             or "reference_thumbnail" not in reference
+                            or int(reference.get("profile_version", 0)) < 2
                             or not existing["visual_embedding"]
                         ):
                             cards_to_profile.append(
@@ -801,14 +803,21 @@ def _apply_surface_reference(
             broad_glare[glare_labels == index] = 255
     broad_glare = cv2.dilate(broad_glare, np.ones((9, 9), np.uint8))
     extra_edges[broad_glare > 0] = 0
-    margin_x = round(observed.shape[1] * 0.06)
-    margin_y = round(observed.shape[0] * 0.06)
-    interior = np.zeros_like(extra_edges)
-    interior[
-        margin_y : observed.shape[0] - margin_y,
-        margin_x : observed.shape[1] - margin_x,
+    reference_valid = cv2.warpPerspective(
+        np.full(reference_image.shape[:2], 255, dtype=np.uint8),
+        transform,
+        (observed.shape[1], observed.shape[0]),
+    )
+    reference_valid = cv2.erode(reference_valid, np.ones((5, 5), np.uint8))
+    outer_margin_x = round(observed.shape[1] * 0.02)
+    outer_margin_y = round(observed.shape[0] * 0.02)
+    inspection_area = np.zeros_like(extra_edges)
+    inspection_area[
+        outer_margin_y : observed.shape[0] - outer_margin_y,
+        outer_margin_x : observed.shape[1] - outer_margin_x,
     ] = 255
-    extra_edges = cv2.bitwise_and(extra_edges, interior)
+    extra_edges = cv2.bitwise_and(extra_edges, reference_valid)
+    extra_edges = cv2.bitwise_and(extra_edges, inspection_area)
     extra_edges = cv2.morphologyEx(
         extra_edges, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
     )
@@ -817,10 +826,29 @@ def _apply_surface_reference(
         extra_edges
     )
     anomalies = []
+    corner_zone_x = observed.shape[1] * 0.12
+    corner_zone_y = observed.shape[0] * 0.12
+    edge_zone_x = observed.shape[1] * 0.07
+    edge_zone_y = observed.shape[0] * 0.07
     for index in range(1, component_count):
         x, y, width, height, area = stats[index]
         short, long = sorted((width, height))
         if area < 7 or long < 8 or short <= 0:
+            continue
+        center_x = x + width / 2.0
+        center_y = y + height / 2.0
+        horizontal_corner = "left" if center_x < observed.shape[1] / 2 else "right"
+        vertical_corner = "top" if center_y < observed.shape[0] / 2 else "bottom"
+        is_corner = min(center_x, observed.shape[1] - center_x) < corner_zone_x and min(
+            center_y, observed.shape[0] - center_y
+        ) < corner_zone_y
+        is_edge = not is_corner and (
+            min(center_x, observed.shape[1] - center_x) < edge_zone_x
+            or min(center_y, observed.shape[0] - center_y) < edge_zone_y
+        )
+        if is_corner and area < 20:
+            continue
+        if is_edge and area < 35:
             continue
         coordinates = np.column_stack(np.where(component_labels == index))
         covariance = np.cov(coordinates, rowvar=False)
@@ -829,14 +857,45 @@ def _apply_surface_reference(
             np.sqrt(max(eigenvalues) / max(0.5, min(eigenvalues)))
         )
         diagonal = float(np.hypot(width, height))
-        if elongation < 2.2 or area / max(1.0, diagonal) > 6.0:
+        if not (is_corner or is_edge) and (
+            elongation < 2.2 or area / max(1.0, diagonal) > 6.0
+        ):
             continue
         if width > observed.shape[1] * 0.85 or height > observed.shape[0] * 0.85:
             continue
-        anomalies.append((int(area), int(x), int(y), int(width), int(height)))
+        if is_corner:
+            category = "corner"
+            location = f"front {vertical_corner}-{horizontal_corner} corner"
+        elif is_edge:
+            category = "edge"
+            nearest_edge = min(
+                (
+                    (center_y, "top edge"),
+                    (observed.shape[1] - center_x, "right edge"),
+                    (observed.shape[0] - center_y, "bottom edge"),
+                    (center_x, "left edge"),
+                ),
+                key=lambda item: item[0],
+            )[1]
+            location = f"front {nearest_edge}"
+        else:
+            category = "surface"
+            location = "front surface"
+        anomalies.append(
+            {
+                "area": int(area),
+                "x": int(x),
+                "y": int(y),
+                "width": int(width),
+                "height": int(height),
+                "category": category,
+                "location": location,
+            }
+        )
 
     scale_x = analysis.image.shape[1] / observed.shape[1]
     scale_y = analysis.image.shape[0] / observed.shape[0]
+
     def surface_severity(area: int) -> str:
         if area >= 80:
             return "high"
@@ -844,34 +903,80 @@ def _apply_surface_reference(
             return "medium"
         return "small"
 
-    for area, x, y, width, height in sorted(anomalies, reverse=True)[:20]:
+    for anomaly in sorted(
+        anomalies, key=lambda item: item["area"], reverse=True
+    )[:30]:
+        area = anomaly["area"]
+        finding_type = {
+            "corner": "Front corner anomaly",
+            "edge": "Front edge anomaly",
+            "surface": "Surface scratch/crease candidate",
+        }[anomaly["category"]]
         analysis.diagnostics["defects"].append(
             {
-                "type": "Surface scratch/crease candidate",
-                "location": "front surface",
+                "type": finding_type,
+                "location": anomaly["location"],
                 "severity": surface_severity(area),
                 "evidence": f"{area} reference-unmatched edge pixels",
                 "bbox": (
-                    round(x * scale_x),
-                    round(y * scale_y),
-                    round((x + width) * scale_x),
-                    round((y + height) * scale_y),
+                    round(anomaly["x"] * scale_x),
+                    round(anomaly["y"] * scale_y),
+                    round((anomaly["x"] + anomaly["width"]) * scale_x),
+                    round((anomaly["y"] + anomaly["height"]) * scale_y),
                 ),
             }
         )
+    surface_anomalies = [
+        item for item in anomalies if item["category"] == "surface"
+    ]
+    corner_anomalies = [
+        item for item in anomalies if item["category"] == "corner"
+    ]
+    edge_anomalies = [item for item in anomalies if item["category"] == "edge"]
     surface_weight = sum(
         {"small": 0.10, "medium": 0.50, "high": 2.0}[
-            surface_severity(item[0])
+            surface_severity(item["area"])
         ]
-        for item in anomalies
+        for item in surface_anomalies
+    )
+    corner_weight = sum(
+        {"small": 0.10, "medium": 0.25, "high": 1.0}[
+            surface_severity(item["area"])
+        ]
+        for item in corner_anomalies
+    )
+    edge_weight = sum(
+        {"small": 0.10, "medium": 0.25, "high": 1.0}[
+            surface_severity(item["area"])
+        ]
+        for item in edge_anomalies
     )
     damage = float(np.clip(surface_weight / 30.0, 0, 1))
     analysis.features["surface_damage"] = damage
     analysis.features["surface_assessed"] = 1.0
+    analysis.features["corner_defect_load"] = max(
+        analysis.features["corner_defect_load"],
+        float(np.clip(corner_weight / 4.0, 0, 1)),
+    )
+    analysis.features["edge_defect_load"] = max(
+        analysis.features["edge_defect_load"],
+        float(np.clip(edge_weight / 12.0, 0, 1)),
+    )
     surface_signals = analysis.diagnostics["condition_signals"]["surface"]
     surface_signals["reference_compared"] = True
-    surface_signals["anomaly_count"] = len(anomalies)
+    surface_signals["anomaly_count"] = len(surface_anomalies)
     surface_signals["severity_weight"] = round(surface_weight, 2)
+    surface_signals["front_corner_anomalies"] = len(corner_anomalies)
+    surface_signals["front_edge_anomalies"] = len(edge_anomalies)
+    defect_counts = analysis.diagnostics["condition_signals"]["defect_counts"]
+    defect_counts["corners"] += len(corner_anomalies)
+    defect_counts["edges"] += len(edge_anomalies)
+    defect_counts["corner_weight"] = round(
+        float(defect_counts.get("corner_weight", 0)) + corner_weight, 2
+    )
+    defect_counts["edge_weight"] = round(
+        float(defect_counts.get("edge_weight", 0)) + edge_weight, 2
+    )
 
 
 def main() -> None:

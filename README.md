@@ -313,6 +313,11 @@ as surface scratch/print-line candidates; smooth broad glare is excluded from
 both categories. Surface candidates are labeled small, medium, or high and use
 severity weighting rather than raw highlighted-pixel totals, preventing many
 tiny marks from collapsing the surface grade.
+For confidently matched fronts, aligned clean-reference comparison covers the
+usable full card rather than excluding the outer border. Unmatched components
+in 12% corner zones affect Corners, components in 7% edge bands affect Edges,
+and elongated interior differences are reported as surface scratch/crease
+candidates.
 The visual measurement overlay remains rectangular, while condition analysis
 uses four dedicated corner zones covering 12% of the card width/height. Damage
 inside those zones is labeled `Corner whitening`; it affects the corner
