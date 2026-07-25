@@ -153,6 +153,29 @@ def test_front_bottom_centering_ignores_copyright_text() -> None:
     assert centering["layout_adjustment"] is None
 
 
+def test_front_centering_rejects_content_bars_beyond_physical_limit() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (35, 205, 235), dtype=np.uint8)
+    cv2.rectangle(
+        card,
+        (35, 38),
+        (CARD_WIDTH - 36, CARD_HEIGHT - 42),
+        (55, 180, 220),
+        3,
+    )
+    cv2.rectangle(
+        card,
+        (45, CARD_HEIGHT - 96),
+        (CARD_WIDTH - 46, CARD_HEIGHT - 84),
+        (235, 235, 235),
+        -1,
+    )
+
+    centering = _border_measurements(card, side="front")
+
+    assert centering["distance_mm"]["bottom"] <= 5.0
+    assert centering["distances"]["bottom"] < 70
+
+
 def test_photo_quality_does_not_create_hidden_damage_penalties() -> None:
     clean = {name: 0.0 for name in BASE_FEATURES}
     clean.update(

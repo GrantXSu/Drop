@@ -11,6 +11,9 @@ import numpy as np
 
 CARD_WIDTH = 750
 CARD_HEIGHT = 1050
+CARD_WIDTH_MM = 63.5
+CARD_HEIGHT_MM = 88.9
+MAX_BORDER_MM = 5.0
 
 
 class CardImageError(ValueError):
@@ -414,11 +417,18 @@ def _border_measurements(
     x_profile = edges[y1:y2].mean(axis=0) / 255.0
     y_profile = edges[:, x1:x2].mean(axis=1) / 255.0
 
-    def guide(profile: np.ndarray, size: int) -> int:
+    def search_bounds(size: int, physical_size_mm: float) -> Tuple[int, int]:
+        start = max(2, round(size * 0.8 / physical_size_mm))
+        stop = min(size, round(size * MAX_BORDER_MM / physical_size_mm) + 1)
+        return start, max(start + 1, stop)
+
+    def guide(
+        profile: np.ndarray, size: int, physical_size_mm: float
+    ) -> int:
         # Pokémon's printable outer border is narrow. Restricting the search
         # prevents artwork frames, text rules, and the Poké Ball from being
         # mistaken for centering boundaries.
-        start, stop = int(size * 0.018), int(size * 0.095)
+        start, stop = search_bounds(size, physical_size_mm)
         smoothed = np.convolve(profile, np.ones(5) / 5.0, mode="same")
         search = smoothed[start:stop]
         if search.size == 0 or float(search.max()) < 0.035:
@@ -433,8 +443,9 @@ def _border_measurements(
     def full_span_guide(axis: int, reverse: bool) -> int:
         """Select a continuous frame edge instead of nearby text or artwork."""
         size = height if axis == 0 else width
+        physical_size_mm = CARD_HEIGHT_MM if axis == 0 else CARD_WIDTH_MM
         span_start, span_stop = (x1, x2) if axis == 0 else (y1, y2)
-        start, stop = int(size * 0.018), int(size * 0.095)
+        start, stop = search_bounds(size, physical_size_mm)
         scores = []
         for distance in range(start, stop):
             coordinate = size - 1 - distance if reverse else distance
@@ -457,7 +468,11 @@ def _border_measurements(
         smoothed = np.convolve(np.asarray(scores), np.ones(3) / 3.0, mode="same")
         if float(smoothed.max()) < 0.04:
             profile = y_profile if axis == 0 else x_profile
-            return guide(profile[::-1] if reverse else profile, size)
+            return guide(
+                profile[::-1] if reverse else profile,
+                size,
+                physical_size_mm,
+            )
         return start + int(np.argmax(smoothed))
 
     if side == "front":
@@ -466,10 +481,10 @@ def _border_measurements(
         top = full_span_guide(axis=0, reverse=False)
         bottom_distance = full_span_guide(axis=0, reverse=True)
     else:
-        left = guide(x_profile, width)
-        right_distance = guide(x_profile[::-1], width)
-        top = guide(y_profile, height)
-        bottom_distance = guide(y_profile[::-1], height)
+        left = guide(x_profile, width, CARD_WIDTH_MM)
+        right_distance = guide(x_profile[::-1], width, CARD_WIDTH_MM)
+        top = guide(y_profile, height, CARD_HEIGHT_MM)
+        bottom_distance = guide(y_profile[::-1], height, CARD_HEIGHT_MM)
     right = width - 1 - right_distance
     bottom = height - 1 - bottom_distance
 
@@ -481,6 +496,13 @@ def _border_measurements(
     vertical = min(top_border, bottom_border) / max(top_border, bottom_border)
     horizontal_total = left_border + right_border
     vertical_total = top_border + bottom_border
+    distance_mm = {
+        "left": round(left_border / width * CARD_WIDTH_MM, 1),
+        "right": round(right_border / width * CARD_WIDTH_MM, 1),
+        "top": round(top_border / height * CARD_HEIGHT_MM, 1),
+        "bottom": round(bottom_border / height * CARD_HEIGHT_MM, 1),
+    }
+    near_limit = any(value >= MAX_BORDER_MM - 0.2 for value in distance_mm.values())
     return {
         "balance_x": float(horizontal),
         "balance_y": float(vertical),
@@ -491,12 +513,9 @@ def _border_measurements(
             "top": top_border,
             "bottom": bottom_border,
         },
-        "distance_mm": {
-            "left": round(left_border / width * 63.5, 1),
-            "right": round(right_border / width * 63.5, 1),
-            "top": round(top_border / height * 88.9, 1),
-            "bottom": round(bottom_border / height * 88.9, 1),
-        },
+        "distance_mm": distance_mm,
+        "measurement_limit_mm": MAX_BORDER_MM,
+        "retest_recommended": near_limit,
         "adjusted_distance_mm": None,
         "layout_adjustment": None,
         "card_dimensions": {"width": width, "height": height},
@@ -919,6 +938,11 @@ def analyze_image(data: bytes, side: Optional[str] = None) -> CardAnalysis:
         quality_warnings.append("Strong glare may hide scratches or surface wear.")
     if not 0.20 <= features["exposure"] <= 0.85:
         quality_warnings.append("The image exposure is too dark or too bright.")
+    if diagnostics["centering"].get("retest_recommended"):
+        quality_warnings.append(
+            "A centering edge was near the 5 mm detection limit; retake the "
+            "photo on a contrasting background before relying on centering."
+        )
     return CardAnalysis(
         card,
         features,

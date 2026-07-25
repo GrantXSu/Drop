@@ -64,6 +64,8 @@ def _visual_report(side: str, analysis: CardAnalysis) -> dict:
             "offset": centering["offset"],
             "reference_calibrated": centering.get("reference_calibrated", False),
             "raw_percent": centering.get("raw_percent"),
+            "measurement_limit_mm": centering.get("measurement_limit_mm"),
+            "retest_recommended": centering.get("retest_recommended", False),
         },
         "findings": analysis.diagnostics["defects"],
         "condition_signals": analysis.diagnostics["condition_signals"],
