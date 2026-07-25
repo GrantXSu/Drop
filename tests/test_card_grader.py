@@ -249,6 +249,24 @@ def test_back_whitening_ignores_smooth_glare_but_finds_small_chip() -> None:
     )
 
 
+def test_back_whitening_finds_wear_on_outermost_corner_pixels() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    cv2.rectangle(card, (10, 0), (20, 4), (225, 225, 225), -1)
+    cv2.rectangle(card, (0, 12), (4, 24), (225, 225, 225), -1)
+    cv2.rectangle(card, (25, 0), (31, 3), (190, 200, 205), -1)
+
+    features, diagnostics = _region_stats(card, side="back")
+
+    corner_findings = [
+        finding
+        for finding in diagnostics["defects"]
+        if finding["bbox"][0] < 50 and finding["bbox"][1] < 50
+    ]
+    assert len(corner_findings) >= 2
+    assert diagnostics["condition_signals"]["corners"]["top-left"] > 0
+    assert features["corner_pale_max"] > 0
+
+
 def test_analyze_image_rejects_non_image() -> None:
     try:
         analyze_image(b"not an image")

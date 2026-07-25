@@ -614,18 +614,21 @@ def _region_stats(
         distance = cv2.distanceTransform(padded_mask, cv2.DIST_L2, 5)[
             1:-1, 1:-1
         ]
-        perimeter_mask = (distance > edge_inset) & (
-            distance <= edge_inset + strip
-        )
+        # The silhouette already removes the tabletop, so include the first
+        # physical pixels where corner whitening most often begins.
+        perimeter_mask = (distance > 0) & (distance <= strip + 2)
 
         saturation = hsv[:, :, 1].astype(np.float32)
         value = hsv[:, :, 2].astype(np.float32)
         local_saturation = cv2.GaussianBlur(saturation, (0, 0), 7.0)
         local_value = cv2.GaussianBlur(value, (0, 0), 7.0)
         localized_change = (
-            ((local_saturation - saturation) > 18) & (value >= local_value - 8)
+            ((local_saturation - saturation) > 14) & (value >= local_value - 10)
         ) | (((value - local_value) > 22) & (saturation < 140))
-        localized = (pale & perimeter_mask & localized_change).astype(np.uint8) * 255
+        strong_white = (saturation < 55) & (value > 155)
+        localized = (
+            pale & perimeter_mask & (localized_change | strong_white)
+        ).astype(np.uint8) * 255
         localized = cv2.morphologyEx(
             localized, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
         )
@@ -633,9 +636,17 @@ def _region_stats(
         components = []
         for index in range(1, component_count):
             x, y, box_width, box_height, area = stats[index]
-            if area < 5 or area > width * height * 0.008:
+            if area < 3 or area > width * height * 0.012:
                 continue
-            if box_width > width * 0.12 or box_height > height * 0.12:
+            near_corner = (
+                (x < corner_radius * 2 or x + box_width > width - corner_radius * 2)
+                and (
+                    y < corner_radius * 2
+                    or y + box_height > height - corner_radius * 2
+                )
+            )
+            size_limit = 0.20 if near_corner else 0.12
+            if box_width > width * size_limit or box_height > height * size_limit:
                 continue
             components.append((area, x, y, box_width, box_height))
         for area, x, y, box_width, box_height in sorted(
