@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
@@ -44,6 +45,20 @@ def _connect(path: Path) -> sqlite3.Connection:
             usage_day TEXT NOT NULL,
             scan_id TEXT NOT NULL,
             PRIMARY KEY(device_id, usage_day, scan_id)
+        );
+        CREATE TABLE IF NOT EXISTS grade_history (
+            device_id TEXT NOT NULL,
+            scan_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            card_id TEXT,
+            card_name TEXT,
+            set_name TEXT,
+            card_number TEXT,
+            image_url TEXT,
+            grade REAL NOT NULL,
+            grade_label TEXT NOT NULL,
+            categories_json TEXT NOT NULL,
+            PRIMARY KEY(device_id, scan_id)
         );
         CREATE INDEX IF NOT EXISTS devices_customer_idx
             ON devices(stripe_customer_id);
@@ -155,6 +170,25 @@ def consume_scan(
     return usage_status(device_id, path)
 
 
+def scan_already_counted(
+    device_id: str,
+    scan_id: Optional[str],
+    path: Optional[Path] = None,
+) -> bool:
+    if not scan_id:
+        return False
+    connection = _connect(path or billing_path())
+    row = connection.execute(
+        """
+        SELECT 1 FROM scan_events
+        WHERE device_id = ? AND usage_day = ? AND scan_id = ?
+        """,
+        (device_id, _today(), scan_id),
+    ).fetchone()
+    connection.close()
+    return row is not None
+
+
 def set_subscription(
     *,
     status: str,
@@ -204,3 +238,90 @@ def customer_for_device(
     ).fetchone()
     connection.close()
     return str(row["stripe_customer_id"]) if row and row["stripe_customer_id"] else None
+
+
+def record_grade(
+    *,
+    device_id: str,
+    scan_id: str,
+    grade: float,
+    grade_label: str,
+    categories: object,
+    card: Optional[Dict[str, object]] = None,
+    path: Optional[Path] = None,
+) -> None:
+    connection = _connect(path or billing_path())
+    card = card or {}
+    connection.execute(
+        """
+        INSERT INTO grade_history(
+            device_id, scan_id, created_at, card_id, card_name, set_name,
+            card_number, image_url, grade, grade_label, categories_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(device_id, scan_id) DO UPDATE SET
+            created_at = excluded.created_at,
+            card_id = excluded.card_id,
+            card_name = excluded.card_name,
+            set_name = excluded.set_name,
+            card_number = excluded.card_number,
+            image_url = excluded.image_url,
+            grade = excluded.grade,
+            grade_label = excluded.grade_label,
+            categories_json = excluded.categories_json
+        """,
+        (
+            device_id,
+            scan_id,
+            datetime.now(timezone.utc).isoformat(),
+            card.get("id"),
+            card.get("name"),
+            card.get("set_name"),
+            card.get("number"),
+            card.get("image_url"),
+            float(grade),
+            grade_label,
+            json.dumps(categories, separators=(",", ":")),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+
+def grade_history(
+    device_id: str, path: Optional[Path] = None, limit: int = 100
+) -> list:
+    connection = _connect(path or billing_path())
+    rows = connection.execute(
+        """
+        SELECT scan_id, created_at, card_id, card_name, set_name, card_number,
+               image_url, grade, grade_label, categories_json
+        FROM grade_history
+        WHERE device_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (device_id, max(1, min(limit, 500))),
+    ).fetchall()
+    connection.close()
+    return [
+        {
+            "scan_id": row["scan_id"],
+            "created_at": row["created_at"],
+            "card_id": row["card_id"],
+            "name": row["card_name"] or "Unidentified card",
+            "set_name": row["set_name"],
+            "number": row["card_number"],
+            "image_url": row["image_url"],
+            "grade": row["grade"],
+            "label": row["grade_label"],
+            "categories": json.loads(row["categories_json"]),
+        }
+        for row in rows
+    ]
+
+
+def clear_grade_history(device_id: str, path: Optional[Path] = None) -> None:
+    connection = _connect(path or billing_path())
+    connection.execute("DELETE FROM grade_history WHERE device_id = ?", (device_id,))
+    connection.commit()
+    connection.close()

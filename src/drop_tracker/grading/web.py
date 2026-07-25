@@ -6,6 +6,7 @@ import argparse
 import base64
 import os
 import threading
+import uuid
 import webbrowser
 from pathlib import Path
 from typing import Literal, Optional
@@ -19,10 +20,14 @@ from pydantic import BaseModel
 
 from .billing import (
     COOKIE_NAME,
+    clear_grade_history,
     consume_scan,
     customer_for_device,
     device_token,
+    grade_history,
+    record_grade,
     resolve_device,
+    scan_already_counted,
     set_subscription,
     usage_status,
 )
@@ -119,6 +124,8 @@ async def _read_upload(upload: UploadFile) -> bytes:
     return data
 
 
+@app.get("/settings", include_in_schema=False)
+@app.get("/cards", include_in_schema=False)
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse(
@@ -229,6 +236,17 @@ def card_search(q: str) -> dict:
     return {"results": search_cards(q, catalog_path), "catalog_ready": catalog_path.exists()}
 
 
+@app.get("/api/history")
+def history(request: Request) -> dict:
+    return {"cards": grade_history(request.state.device_id)}
+
+
+@app.delete("/api/history")
+def delete_history(request: Request) -> dict:
+    clear_grade_history(request.state.device_id)
+    return {"cleared": True}
+
+
 @app.post("/api/grade")
 async def grade_card(
     request: Request,
@@ -246,7 +264,9 @@ async def grade_card(
     back_bottom_mm: Optional[float] = Form(default=None),
 ) -> dict:
     billing_before = usage_status(request.state.device_id)
-    if not billing_before["can_scan"]:
+    if not billing_before["can_scan"] and not scan_already_counted(
+        request.state.device_id, scan_id
+    ):
         raise HTTPException(
             status_code=402,
             detail=(
@@ -337,14 +357,27 @@ async def grade_card(
     if back_analysis:
         visual_reports.append(_visual_report("Back", back_analysis))
 
-    billing_after = consume_scan(request.state.device_id, scan_id=scan_id)
+    effective_scan_id = scan_id or uuid.uuid4().hex
+    categories = defect_summary(
+        front_analysis.features,
+        back_analysis.features if back_analysis else None,
+        model_path,
+    )
+    billing_after = consume_scan(
+        request.state.device_id, scan_id=effective_scan_id
+    )
+    record_grade(
+        device_id=request.state.device_id,
+        scan_id=effective_scan_id,
+        grade=prediction.grade,
+        grade_label=prediction_payload["label"],
+        categories=categories,
+        card=identified_card,
+    )
     return {
+        "scan_id": effective_scan_id,
         "prediction": prediction_payload,
-        "categories": defect_summary(
-            front_analysis.features,
-            back_analysis.features if back_analysis else None,
-            model_path,
-        ),
+        "categories": categories,
         "warnings": warnings,
         "visual_reports": visual_reports,
         "identification": {

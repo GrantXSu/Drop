@@ -624,6 +624,12 @@ def test_ui_collapses_detected_findings() -> None:
     assert "3 card analyses per UTC day" in response.text
     assert "$9.99" in response.text
     assert "$59.99" in response.text
+    assert 'data-nav="analyze"' in response.text
+    assert 'data-nav="cards"' in response.text
+    assert 'data-nav="settings"' in response.text
+
+    assert TestClient(app).get("/cards").status_code == 200
+    assert TestClient(app).get("/settings").status_code == 200
 
 
 def test_grade_api_applies_manual_centering_guides(monkeypatch, tmp_path: Path) -> None:
@@ -763,6 +769,26 @@ def test_grade_api_enforces_three_unique_cards_per_day(
     )
     assert blocked.status_code == 402
     assert "3 card analyses" in blocked.json()["detail"]
+    recalculated = client.post(
+        "/api/grade",
+        files={"front": ("front.jpg", card_image_bytes(), "image/jpeg")},
+        data={
+            "scan_id": "card-2",
+            "front_left_mm": "2.0",
+            "front_right_mm": "2.0",
+            "front_top_mm": "2.0",
+            "front_bottom_mm": "2.0",
+        },
+    )
+    assert recalculated.status_code == 200
+    assert recalculated.json()["billing"]["used_today"] == 3
+    history = client.get("/api/history")
+    assert history.status_code == 200
+    assert len(history.json()["cards"]) == 3
+
+    cleared = client.delete("/api/history")
+    assert cleared.status_code == 200
+    assert client.get("/api/history").json()["cards"] == []
 
 
 def test_pro_checkout_uses_configured_stripe_price(monkeypatch, tmp_path: Path) -> None:

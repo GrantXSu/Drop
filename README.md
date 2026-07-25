@@ -138,6 +138,15 @@ Capture the front and back, then choose **Analyze captured card** without saving
 or selecting upload files. Browser camera access requires HTTPS or localhost;
 the normal photo picker remains available when live camera access is blocked.
 
+The persistent bottom bar separates CardLens into three routes:
+
+- **Analyze** (`/`) for camera/upload grading and reports.
+- **My Cards** (`/cards`) for grade history saved on the current device.
+- **Settings** (`/settings`) for plan, model, billing, accuracy, and history controls.
+
+Manual-guide recalculations and catalog confirmation update the existing history
+entry for that scan rather than creating duplicate cards.
+
 If an automatic centering guide follows text or a content bar, choose
 **Enable line adjustment** in the inspection report. Drag the four green lines
 directly on the normalized card image, then choose **Apply and recalculate**.
