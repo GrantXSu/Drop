@@ -733,7 +733,10 @@ def test_ui_collapses_detected_findings() -> None:
     assert 'id="camera-video"' in response.text
     assert 'id="camera-front-slot"' in response.text
     assert 'id="camera-back-slot"' in response.text
-    assert "Capture front" in response.text
+    assert 'data-camera-side="front"' in response.text
+    assert 'data-camera-side="back"' in response.text
+    assert 'id="capture-photo"' in response.text
+    assert 'id="native-camera-trigger"' in response.text
     assert "Analyze captured card" in response.text
     assert "3 card analyses per UTC day" in response.text
     assert "$9.99" in response.text

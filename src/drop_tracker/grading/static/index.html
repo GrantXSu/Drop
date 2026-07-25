@@ -129,10 +129,14 @@
     .camera-capture-slot.ready img { display:block; }
     .camera-capture-slot b,.camera-capture-slot span { display:block; }
     .camera-capture-slot span { font-size:11px; }
-    .camera-controls { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:12px; }
+    .camera-side-selector { display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:10px 12px 0; }
+    .camera-side-selector button { color:var(--ink); background:#e4e7f1; }
+    .camera-side-selector button.active { color:#fff; background:var(--blue); }
+    .camera-controls { display:grid; gap:9px; padding:10px 12px 12px; }
+    .camera-shutter { min-height:54px; font-size:17px; }
     .camera-controls .captured { color:#16482b; background:#9ce5b4; }
-    .camera-controls .camera-analyze { grid-column:1/-1; }
-    .camera-status { grid-column:1/-1; min-height:22px; margin:0; color:var(--muted); text-align:center; font-size:13px; }
+    .camera-status { min-height:22px; margin:0; color:var(--muted); text-align:center; font-size:13px; }
+    #native-camera-input { display:none; }
     .pricing-modal { position:fixed; z-index:60; inset:0; display:grid; place-items:center; padding:16px; background:#060913d9; }
     .pricing-modal[hidden] { display:none; }
     .pricing-sheet { width:min(760px,100%); max-height:95vh; overflow:auto; padding:20px; border-radius:20px; background:var(--paper); }
@@ -407,9 +411,14 @@
           <div><b>Back slot</b><span>Not captured</span></div>
         </div>
       </div>
+      <div class="camera-side-selector" aria-label="Choose card side">
+        <button class="camera-side-button active" data-camera-side="front" type="button">Front</button>
+        <button class="camera-side-button" data-camera-side="back" type="button">Back</button>
+      </div>
       <div class="camera-controls">
-        <button id="capture-front" type="button">Capture front</button>
-        <button id="capture-back" type="button">Capture back</button>
+        <button id="capture-photo" class="camera-shutter" type="button">Take picture for Front</button>
+        <button id="native-camera-trigger" class="camera-shutter secondary-button" type="button" hidden>Open device camera for Front</button>
+        <input id="native-camera-input" type="file" accept="image/*" capture="environment">
         <button id="camera-analyze" class="camera-analyze" type="button" disabled>Analyze captured card</button>
         <p class="camera-status" id="camera-status">Align all four card corners inside the green frame.</p>
       </div>
@@ -581,10 +590,30 @@
       slot.classList.remove("ready");
       slot.querySelector("img").removeAttribute("src");
       slot.querySelector("span").textContent = "Not captured";
-      const button = document.querySelector(`#capture-${side}`);
-      button.classList.remove("captured");
-      button.textContent = `Capture ${side}`;
       document.querySelector("#camera-analyze").disabled = !capturedFiles.front;
+      updateCameraControls();
+    }
+
+    let cameraTarget = "front";
+
+    function updateCameraControls() {
+      const label = cameraTarget[0].toUpperCase() + cameraTarget.slice(1);
+      const captured = Boolean(capturedFiles[cameraTarget]);
+      const shutter = document.querySelector("#capture-photo");
+      const native = document.querySelector("#native-camera-trigger");
+      shutter.textContent = `${captured ? "Retake" : "Take"} picture for ${label}${captured ? " ✓" : ""}`;
+      native.textContent = `Open device camera for ${label}`;
+      shutter.classList.toggle("captured", captured);
+      document.querySelectorAll("[data-camera-side]").forEach(button => {
+        button.classList.toggle("active", button.dataset.cameraSide === cameraTarget);
+      });
+    }
+
+    function setCameraTarget(side) {
+      cameraTarget = side;
+      updateCameraControls();
+      cameraStatus.textContent =
+        `Selected ${side}. Align all four card corners inside the green frame.`;
     }
 
     function showCapturedPhoto(side, file, source, width, height) {
@@ -605,9 +634,19 @@
       slot.classList.add("ready");
       slot.querySelector("img").src = source;
       slot.querySelector("span").textContent = "Ready for analysis";
-      const button = document.querySelector(`#capture-${side}`);
-      button.classList.add("captured");
-      button.textContent = `Retake ${side} ✓`;
+      updateCameraControls();
+    }
+
+    function finishCapture(side) {
+      document.querySelector("#camera-analyze").disabled = !capturedFiles.front;
+      if (side === "front" && !capturedFiles.back) {
+        setCameraTarget("back");
+        cameraStatus.textContent =
+          "Front added to the front upload slot. Back is now selected.";
+      } else {
+        cameraStatus.textContent =
+          `${side[0].toUpperCase() + side.slice(1)} added to the ${side} upload slot.`;
+      }
     }
 
     function stopCamera() {
@@ -619,7 +658,10 @@
 
     cameraMode.addEventListener("click", async () => {
       cameraModal.hidden = false;
+      setCameraTarget(capturedFiles.front && !capturedFiles.back ? "back" : "front");
       cameraStatus.textContent = "Starting rear camera…";
+      document.querySelector("#capture-photo").hidden = true;
+      document.querySelector("#native-camera-trigger").hidden = true;
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           throw new Error("Live camera access requires Safari/Chrome on HTTPS or localhost.");
@@ -634,9 +676,12 @@
         });
         cameraVideo.srcObject = cameraStream;
         await cameraVideo.play();
+        document.querySelector("#capture-photo").hidden = false;
         cameraStatus.textContent = "Align all four card corners inside the green frame.";
       } catch (error) {
-        cameraStatus.textContent = error.message;
+        document.querySelector("#native-camera-trigger").hidden = false;
+        cameraStatus.textContent =
+          `${error.message} Use the device camera button below instead.`;
       }
     });
 
@@ -645,9 +690,12 @@
       if (event.target === cameraModal) stopCamera();
     });
 
-    function capturePhoto(side) {
+    function capturePhoto() {
+      const side = cameraTarget;
       if (!cameraStream || !cameraVideo.videoWidth) {
-        cameraStatus.textContent = "Wait for the camera preview before capturing.";
+        cameraStatus.textContent =
+          "Live preview is unavailable. Use the device camera button.";
+        document.querySelector("#native-camera-trigger").hidden = false;
         return;
       }
       cameraCanvas.width = cameraVideo.videoWidth;
@@ -669,18 +717,35 @@
         showCapturedPhoto(
           side, file, source, cameraCanvas.width, cameraCanvas.height
         );
-        document.querySelector("#camera-analyze").disabled = !capturedFiles.front;
-        cameraStatus.textContent =
-          `${side[0].toUpperCase() + side.slice(1)} added to the ${side} upload slot. ${side === "front" ? "Turn the card over and capture the back." : "Both sides are ready to analyze."}`;
+        finishCapture(side);
       }, "image/jpeg", 0.95);
     }
 
-    document.querySelector("#capture-front").addEventListener(
-      "click", () => capturePhoto("front")
+    document.querySelectorAll("[data-camera-side]").forEach(button => {
+      button.addEventListener(
+        "click", () => setCameraTarget(button.dataset.cameraSide)
+      );
+    });
+    document.querySelector("#capture-photo").addEventListener("click", capturePhoto);
+    const nativeCameraInput = document.querySelector("#native-camera-input");
+    document.querySelector("#native-camera-trigger").addEventListener(
+      "click", () => nativeCameraInput.click()
     );
-    document.querySelector("#capture-back").addEventListener(
-      "click", () => capturePhoto("back")
-    );
+    nativeCameraInput.addEventListener("change", () => {
+      const file = nativeCameraInput.files[0];
+      if (!file) return;
+      const side = cameraTarget;
+      const source = URL.createObjectURL(file);
+      const probe = new Image();
+      probe.onload = () => {
+        showCapturedPhoto(
+          side, file, source, probe.naturalWidth, probe.naturalHeight
+        );
+        finishCapture(side);
+        nativeCameraInput.value = "";
+      };
+      probe.src = source;
+    });
     document.querySelector("#camera-analyze").addEventListener("click", () => {
       stopCamera();
       scan.click();

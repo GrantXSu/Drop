@@ -134,11 +134,12 @@ visible, and include both sides. The first run uses a clearly labeled,
 low-confidence visual heuristic.
 
 Choose **Use camera** for a live rear-camera preview with a card framing guide.
-Capture the front and back, then choose **Analyze captured card** without saving
-or selecting upload files. Each capture immediately fills its labeled front or
-back upload slot and shows a confirmation preview before analysis. Browser
-camera access requires HTTPS or localhost; the normal photo picker remains
-available when live camera access is blocked.
+Select **Front** or **Back**, press the single **Take picture** shutter, then
+choose **Analyze captured card** without saving or selecting upload files. Each
+capture immediately fills its labeled upload slot and shows a confirmation
+preview. When live preview is blocked because the page is not on HTTPS or
+localhost, **Open device camera** falls back to the phone's native camera input
+and assigns that image to the selected side.
 
 The persistent bottom bar separates CardLens into three routes:
 
