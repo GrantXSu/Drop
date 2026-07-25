@@ -181,6 +181,10 @@ manual guides or confirming a catalog match for the same captured card does not
 consume another analysis. CardLens Pro is **$9.99/month** or **$59.99/year** and
 includes unlimited analyses.
 
+Free users see dismissible CardLens Pro promotions on Analyze and My Cards.
+They disappear automatically for active Pro subscribers and use no third-party
+advertising network or tracking script.
+
 Payments use Stripe-hosted Checkout and Stripe's customer portal. Create one
 monthly recurring price and one annual recurring price in Stripe, then set:
 

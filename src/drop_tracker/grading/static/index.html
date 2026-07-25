@@ -141,6 +141,15 @@
     .history-card p { margin:2px 0; color:var(--muted); font-size:12px; }
     .history-grade { font-size:28px; color:#a16e00; font-weight:900; }
     .empty-state { padding:30px; border:1px dashed #c8c5bd; border-radius:15px; color:var(--muted); text-align:center; }
+    .pro-ad { position:relative; display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; margin:0 0 16px; padding:17px 48px 17px 18px; overflow:hidden; border-radius:17px; color:#fff; background:linear-gradient(120deg,#243bba,#7552d5 58%,#d68032); box-shadow:0 12px 30px #273a8e2b; }
+    .pro-ad[hidden] { display:none; }
+    .pro-ad::after { content:""; position:absolute; width:170px; height:170px; right:-55px; top:-90px; border:30px solid #ffffff1f; border-radius:50%; pointer-events:none; }
+    .pro-ad-label { position:relative; z-index:1; padding:6px 9px; border:1px solid #ffffff5c; border-radius:999px; background:#111b6599; font-size:11px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+    .pro-ad-copy { position:relative; z-index:1; }
+    .pro-ad-copy strong { display:block; font-size:20px; }
+    .pro-ad-copy span { color:#eef0ff; font-size:13px; }
+    .pro-ad-cta { position:relative; z-index:2; min-height:40px; padding:9px 13px; color:#243071; background:#fff; }
+    .pro-ad-close { position:absolute; z-index:3; top:5px; right:6px; width:34px; min-height:34px; padding:0; color:#fff; background:transparent; font-size:20px; }
     .settings-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
     .settings-card { padding:17px; border:1px solid var(--line); border-radius:15px; background:#fff; }
     .settings-card h3 { margin:0 0 8px; }
@@ -211,6 +220,9 @@
       .pricing-grid { grid-template-columns:1fr; }
       .history-grid,.settings-grid { grid-template-columns:1fr; }
       .bottom-nav { bottom:max(5px,env(safe-area-inset-bottom)); border-radius:16px; }
+      .pro-ad { grid-template-columns:1fr; gap:8px; padding:14px 42px 14px 14px; }
+      .pro-ad-label { width:max-content; }
+      .pro-ad-cta { width:100%; }
     }
   </style>
 </head>
@@ -228,6 +240,15 @@
       <h1>See the card.<br>Estimate the grade.</h1>
       <p>Upload or photograph both sides in even light. CardLens returns a digital condition report with a decimal grade and centering, corner, edge, and surface subgrades.</p>
     </section>
+    <aside class="pro-ad" data-pro-ad hidden>
+      <span class="pro-ad-label">CardLens Pro</span>
+      <div class="pro-ad-copy">
+        <strong>Keep grading after your three free cards.</strong>
+        <span>Unlock unlimited analyses for $9.99/month. Cancel any time.</span>
+      </div>
+      <button class="pro-ad-cta" type="button">View Pro</button>
+      <button class="pro-ad-close" type="button" aria-label="Dismiss Pro promotion">×</button>
+    </aside>
     <section class="panel">
       <details class="capture-guide">
         <summary>Accuracy checklist before scanning</summary>
@@ -290,6 +311,15 @@
         <h1>My graded cards</h1>
         <p>Cards analyzed on this device. Recalculating the same scan updates its saved result.</p>
       </div>
+      <aside class="pro-ad" data-pro-ad hidden>
+        <span class="pro-ad-label">Annual Pro</span>
+        <div class="pro-ad-copy">
+          <strong>Build your collection without a daily cap.</strong>
+          <span>Unlimited grading for $59.99/year — save 50% versus monthly.</span>
+        </div>
+        <button class="pro-ad-cta" type="button">See annual plan</button>
+        <button class="pro-ad-close" type="button" aria-label="Dismiss Pro promotion">×</button>
+      </aside>
       <div class="history-grid" id="history-grid">
         <div class="empty-state">Loading graded cards…</div>
       </div>
@@ -610,6 +640,15 @@
       });
       document.querySelector("#manage-billing").hidden = !billing.is_pro;
       document.querySelector("#settings-manage-billing").hidden = !billing.is_pro;
+      let adsDismissed = false;
+      try {
+        adsDismissed = sessionStorage.getItem("cardlens_pro_ads_dismissed") === "1";
+      } catch (error) {
+        adsDismissed = false;
+      }
+      document.querySelectorAll("[data-pro-ad]").forEach(ad => {
+        ad.hidden = billing.is_pro || adsDismissed;
+      });
       if (!billing.billing_configured) {
         document.querySelector("#billing-note").textContent =
           "Payments are not configured yet. Add Stripe keys to enable Pro checkout.";
@@ -625,6 +664,21 @@
     }).catch(() => document.querySelector("#model-status").textContent = "Scanner offline");
 
     planStatus.addEventListener("click", () => { pricingModal.hidden = false; });
+    document.querySelectorAll(".pro-ad-cta").forEach(button => {
+      button.addEventListener("click", () => { pricingModal.hidden = false; });
+    });
+    document.querySelectorAll(".pro-ad-close").forEach(button => {
+      button.addEventListener("click", () => {
+        try {
+          sessionStorage.setItem("cardlens_pro_ads_dismissed", "1");
+        } catch (error) {
+          // Session-only dismissal is optional when browser storage is blocked.
+        }
+        document.querySelectorAll("[data-pro-ad]").forEach(ad => {
+          ad.hidden = true;
+        });
+      });
+    });
     document.querySelector("#settings-pricing").addEventListener(
       "click", () => { pricingModal.hidden = false; }
     );

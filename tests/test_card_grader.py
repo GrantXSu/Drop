@@ -624,6 +624,9 @@ def test_ui_collapses_detected_findings() -> None:
     assert "3 card analyses per UTC day" in response.text
     assert "$9.99" in response.text
     assert "$59.99" in response.text
+    assert 'data-pro-ad' in response.text
+    assert "Keep grading after your three free cards." in response.text
+    assert "Build your collection without a daily cap." in response.text
     assert 'data-nav="analyze"' in response.text
     assert 'data-nav="cards"' in response.text
     assert 'data-nav="settings"' in response.text
