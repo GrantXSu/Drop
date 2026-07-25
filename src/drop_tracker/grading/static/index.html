@@ -64,6 +64,10 @@
     .finding { display:grid; grid-template-columns:10px 1fr; gap:10px; margin-top:12px; }
     .finding-dot { width:10px; height:10px; margin-top:6px; border-radius:50%; background:var(--red); }
     .finding small { display:block; color:var(--muted); }
+    .findings-dropdown { margin-top:14px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#faf9f5; }
+    .findings-dropdown summary { display:flex; justify-content:space-between; gap:12px; padding:12px 14px; cursor:pointer; font-weight:800; }
+    .findings-dropdown summary small { color:var(--muted); font-weight:600; }
+    .findings-list { max-height:360px; overflow:auto; padding:0 14px 14px; border-top:1px solid var(--line); }
     .signals { display:grid; gap:9px; margin:16px 0; }
     .signal { padding:10px 12px; border-radius:10px; background:#f5f3ed; font-size:13px; }
     .signal b { display:block; margin-bottom:3px; }
@@ -125,7 +129,7 @@
         </div>
         <section class="evidence" id="evidence">
           <h2>Detailed inspection report</h2>
-          <p class="evidence-intro">Each card is perspective-corrected to 750 × 1050 pixels. Green guides mark the inner printed edge; the report measures from each physical outer edge to that guide, then compares opposite borders. Red regions show suspected defects or glare.</p>
+          <p class="evidence-intro">Each card is perspective-corrected to 750 × 1050 pixels. Green guides mark the inner printed edge; the report measures from each physical outer edge to that guide, then compares opposite borders. Red regions show localized suspected defects.</p>
           <div class="evidence-grid" id="visual-reports"></div>
           <div class="legend"><span><i class="outer"></i>Outer physical border</span><span><i class="green"></i>Inner printed border</span><span><i class="red"></i>Suspected edge defect</span></div>
         </section>
@@ -209,14 +213,25 @@
             .map(([name, value]) => `${name} ${Number(value).toFixed(1)}%`).join(" · ");
           const edgeText = Object.entries(signals.edges)
             .map(([name, value]) => `${name} ${Number(value).toFixed(1)}%`).join(" · ");
+          const highFindings = report.findings.filter(
+            finding => finding.severity === "high"
+          ).length;
           const findings = report.findings.length
-            ? report.findings.map(finding => `
-                <div class="finding">
-                  <i class="finding-dot"></i>
-                  <span><b>${finding.type} · ${finding.location}</b>
-                    <small>${finding.severity} signal — ${finding.evidence}</small>
-                  </span>
-                </div>`).join("")
+            ? `<details class="findings-dropdown">
+                <summary>
+                  <span>Detected findings (${report.findings.length})</span>
+                  <small>${highFindings} high · ${report.findings.length - highFindings} medium</small>
+                </summary>
+                <div class="findings-list">
+                  ${report.findings.map(finding => `
+                    <div class="finding">
+                      <i class="finding-dot"></i>
+                      <span><b>${finding.type} · ${finding.location}</b>
+                        <small>${finding.severity} signal — ${finding.evidence}</small>
+                      </span>
+                    </div>`).join("")}
+                </div>
+              </details>`
             : `<div class="clear">No localized whitening or glare signals exceeded the detection threshold.</div>`;
           return `
             <article class="evidence-card">
@@ -234,7 +249,7 @@
                 </div>
                 <div class="signals">
                   <div class="signal"><b>Corner evidence</b><span>Pale/color-loss pixels: ${cornerText}. Lower is better.</span></div>
-                  <div class="signal"><b>Edge evidence</b><span>Pale/whitening pixels: ${edgeText}. A blurry image reduces the edge score.</span></div>
+                  <div class="signal"><b>Edge evidence</b><span>Confirmed pale/whitening pixels: ${edgeText}. Blur lowers confidence, not the edge score.</span></div>
                   <div class="signal"><b>Surface evidence</b><span>Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · dark obstruction ${Number(signals.surface.dark_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
                 </div>
                 ${findings}

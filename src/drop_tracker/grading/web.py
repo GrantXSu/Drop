@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import base64
 import os
+import threading
+import webbrowser
 from pathlib import Path
 from typing import Optional
 
@@ -162,7 +164,13 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--reload", action="store_true")
+    parser.add_argument("--open", action="store_true", help="Open CardLens in a browser.")
     args = parser.parse_args()
+    if args.open:
+        browser_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
+        threading.Timer(
+            1.0, lambda: webbrowser.open(f"http://{browser_host}:{args.port}")
+        ).start()
     uvicorn.run(
         "drop_tracker.grading.web:app",
         host=args.host,

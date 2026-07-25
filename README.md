@@ -133,6 +133,27 @@ plain, contrasting background. Use diffuse light, keep all four corners
 visible, and include both sides. The first run uses a clearly labeled,
 low-confidence visual heuristic.
 
+For a single development command that opens the browser and reloads when source
+files change:
+
+```sh
+drop-card-grader --reload --open
+```
+
+### Install CardLens as a Mac app
+
+After completing the installation above, run this once:
+
+```sh
+scripts/install-cardlens-macos.sh
+```
+
+This installs a per-user background service that starts CardLens at login,
+reloads after source updates, and creates `~/Applications/CardLens.app`. Open
+that app like any other Mac application; no terminal needs to remain open.
+CardLens still runs locally at <http://127.0.0.1:8000> and does not upload card
+photos to a hosted service.
+
 ### Sync the card identification catalog
 
 CardLens can identify English cards from Sword & Shield, Scarlet & Violet, and

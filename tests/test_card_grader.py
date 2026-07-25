@@ -404,3 +404,11 @@ def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
         "edges",
         "surface",
     }
+
+
+def test_ui_collapses_detected_findings() -> None:
+    response = TestClient(app).get("/")
+
+    assert response.status_code == 200
+    assert 'class="findings-dropdown"' in response.text
+    assert "Detected findings (" in response.text
