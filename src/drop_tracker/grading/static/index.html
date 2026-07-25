@@ -176,6 +176,8 @@
     .settings-card h3 { margin:0 0 8px; }
     .settings-card p { color:var(--muted); }
     .settings-card button { margin:4px 4px 0 0; }
+    .settings-card input[type="file"] { width:100%; margin:6px 0; }
+    .reference-message { min-height:20px; color:var(--muted); font-size:12px; }
     .bottom-nav { position:fixed; z-index:40; left:50%; bottom:max(10px,env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(3,1fr); width:min(430px,calc(100% - 20px)); transform:translateX(-50%); border:1px solid #d7d4cc; border-radius:19px; overflow:hidden; background:#fffdf8ed; box-shadow:0 12px 40px #17213a2b; backdrop-filter:blur(14px); }
     .bottom-nav a { display:flex; flex-direction:column; align-items:center; gap:1px; padding:9px 5px 8px; color:var(--muted); text-decoration:none; font-size:11px; font-weight:750; }
     .bottom-nav a span:first-child { font-size:20px; line-height:1; }
@@ -388,6 +390,14 @@
         <article class="settings-card">
           <h3>Accuracy</h3>
           <p>Use high-resolution front/back photos, diffuse lighting, and verified training data.</p>
+        </article>
+        <article class="settings-card">
+          <h3>Clean back calibration</h3>
+          <p>Upload one sharp, undamaged Pokémon card back. CardLens will align future backs against it to separate printed artwork from real wear.</p>
+          <input id="back-reference-input" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+          <button id="save-back-reference" type="button">Save clean back reference</button>
+          <button id="remove-back-reference" class="secondary-button" type="button" hidden>Remove reference</button>
+          <div class="reference-message" id="back-reference-message">No clean back reference saved.</div>
         </article>
       </div>
     </section>
@@ -778,6 +788,12 @@
       });
       document.querySelector("#manage-billing").hidden = !billing.is_pro;
       document.querySelector("#settings-manage-billing").hidden = !billing.is_pro;
+      document.querySelector("#remove-back-reference").hidden =
+        !billing.back_reference_ready;
+      document.querySelector("#back-reference-message").textContent =
+        billing.back_reference_ready
+          ? "Clean back reference ready."
+          : "No clean back reference saved.";
       let adsDismissed = false;
       try {
         adsDismissed = sessionStorage.getItem("cardlens_pro_ads_dismissed") === "1";
@@ -861,6 +877,38 @@
       const response = await fetch("/api/history", { method:"DELETE" });
       if (response.ok) loadHistory();
     });
+    document.querySelector("#save-back-reference").addEventListener(
+      "click", async () => {
+        const input = document.querySelector("#back-reference-input");
+        const message = document.querySelector("#back-reference-message");
+        if (!input.files[0]) {
+          message.textContent = "Choose a clean back photo first.";
+          return;
+        }
+        message.textContent = "Checking and saving clean back reference…";
+        const form = new FormData();
+        form.append("image", input.files[0]);
+        const response = await fetch("/api/reference/back", {
+          method:"POST",
+          body:form,
+        });
+        const payload = await response.json();
+        if (response.ok) {
+          input.value = "";
+          updateBilling(payload.billing);
+        } else {
+          message.textContent = payload.detail || "Reference could not be saved.";
+        }
+      }
+    );
+    document.querySelector("#remove-back-reference").addEventListener(
+      "click", async () => {
+        const response = await fetch("/api/reference/back", { method:"DELETE" });
+        const payload = await response.json();
+        if (response.ok) updateBilling(payload.billing);
+      }
+    );
+
     function escapeHtml(value) {
       const element = document.createElement("div");
       element.textContent = String(value ?? "");

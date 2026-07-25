@@ -60,6 +60,11 @@ def _connect(path: Path) -> sqlite3.Connection:
             categories_json TEXT NOT NULL,
             PRIMARY KEY(device_id, scan_id)
         );
+        CREATE TABLE IF NOT EXISTS back_references (
+            device_id TEXT PRIMARY KEY,
+            image_blob BLOB NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS devices_customer_idx
             ON devices(stripe_customer_id);
         """
@@ -117,6 +122,9 @@ def usage_status(device_id: str, path: Optional[Path] = None) -> Dict[str, objec
         "SELECT scan_count FROM usage WHERE device_id = ? AND usage_day = ?",
         (device_id, _today()),
     ).fetchone()
+    back_reference = connection.execute(
+        "SELECT 1 FROM back_references WHERE device_id = ?", (device_id,)
+    ).fetchone()
     connection.close()
     used = int(usage["scan_count"]) if usage else 0
     plan = _plan(device)
@@ -138,6 +146,7 @@ def usage_status(device_id: str, path: Optional[Path] = None) -> Dict[str, objec
             and os.getenv("STRIPE_PRO_ANNUAL_PRICE_ID")
             and os.getenv("CARDLENS_COOKIE_SECRET")
         ),
+        "back_reference_ready": back_reference is not None,
     }
 
 
@@ -330,5 +339,45 @@ def grade_history(
 def clear_grade_history(device_id: str, path: Optional[Path] = None) -> None:
     connection = _connect(path or billing_path())
     connection.execute("DELETE FROM grade_history WHERE device_id = ?", (device_id,))
+    connection.commit()
+    connection.close()
+
+
+def save_back_reference(
+    device_id: str, image_bytes: bytes, path: Optional[Path] = None
+) -> None:
+    connection = _connect(path or billing_path())
+    connection.execute(
+        """
+        INSERT INTO back_references(device_id, image_blob, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(device_id) DO UPDATE SET
+            image_blob = excluded.image_blob,
+            updated_at = excluded.updated_at
+        """,
+        (device_id, image_bytes, datetime.now(timezone.utc).isoformat()),
+    )
+    connection.commit()
+    connection.close()
+
+
+def get_back_reference(
+    device_id: str, path: Optional[Path] = None
+) -> Optional[bytes]:
+    connection = _connect(path or billing_path())
+    row = connection.execute(
+        "SELECT image_blob FROM back_references WHERE device_id = ?", (device_id,)
+    ).fetchone()
+    connection.close()
+    return bytes(row["image_blob"]) if row else None
+
+
+def delete_back_reference(
+    device_id: str, path: Optional[Path] = None
+) -> None:
+    connection = _connect(path or billing_path())
+    connection.execute(
+        "DELETE FROM back_references WHERE device_id = ?", (device_id,)
+    )
     connection.commit()
     connection.close()

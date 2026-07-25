@@ -24,16 +24,20 @@ from .billing import (
     clear_grade_history,
     consume_scan,
     customer_for_device,
+    delete_back_reference,
     device_token,
+    get_back_reference,
     grade_history,
     record_grade,
     resolve_device,
+    save_back_reference,
     scan_already_counted,
     set_subscription,
     usage_status,
 )
 from .catalog import (
     DEFAULT_CATALOG_PATH,
+    apply_back_reference,
     apply_reference_baseline,
     get_card,
     identify_card,
@@ -309,6 +313,36 @@ def delete_history(request: Request) -> dict:
     return {"cleared": True}
 
 
+@app.post("/api/reference/back")
+async def upload_back_reference(
+    request: Request, image: UploadFile = File(...)
+) -> dict:
+    analysis = analyze_image(await _read_upload(image), side="back")
+    if min(analysis.source_image.shape[:2]) < 1000:
+        raise HTTPException(
+            status_code=422,
+            detail="Clean back reference must be at least 1000 pixels on the short edge.",
+        )
+    if analysis.features["sharpness"] < 0.12 or analysis.features["surface_glare"] > 0.08:
+        raise HTTPException(
+            status_code=422,
+            detail="Clean back reference must be sharp and free of strong glare.",
+        )
+    success, encoded = cv2.imencode(
+        ".jpg", analysis.image, [cv2.IMWRITE_JPEG_QUALITY, 92]
+    )
+    if not success:
+        raise HTTPException(status_code=500, detail="Could not save clean back reference.")
+    save_back_reference(request.state.device_id, encoded.tobytes())
+    return {"saved": True, "billing": usage_status(request.state.device_id)}
+
+
+@app.delete("/api/reference/back")
+def clear_back_reference(request: Request) -> dict:
+    delete_back_reference(request.state.device_id)
+    return {"cleared": True, "billing": usage_status(request.state.device_id)}
+
+
 @app.post("/api/grade")
 async def grade_card(
     request: Request,
@@ -341,6 +375,13 @@ async def grade_card(
         back_analysis = (
             analyze_image(await _read_upload(back), side="back") if back else None
         )
+        back_reference_applied = False
+        if back_analysis:
+            clean_back = get_back_reference(request.state.device_id)
+            if clean_back:
+                back_reference_applied = apply_back_reference(
+                    back_analysis, clean_back
+                )
         catalog_path = Path(
             os.getenv("CARD_CATALOG", str(DEFAULT_CATALOG_PATH))
         )
@@ -444,6 +485,7 @@ async def grade_card(
             "catalog_ready": catalog_path.exists(),
         },
         "billing": billing_after,
+        "back_reference_applied": back_reference_applied,
     }
 
 

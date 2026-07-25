@@ -315,6 +315,13 @@ straight localized scratch/crease signals while rejecting broad glare and
 curved printed swirls. Surface candidates use weights of 0.1 (small), 0.5
 (medium), and 3.0 (high), so tiny marks remain modest while repeated severe
 scratches can produce a genuinely low surface grade.
+Generic printed-interior detection abstains when sharpness is below the photo
+quality threshold instead of drawing unreliable boxes. For stronger back
+analysis, open **Settings → Clean back calibration** and upload one sharp,
+undamaged Pokémon back at least 1000 pixels on its short edge. CardLens stores
+the normalized reference for that signed device, aligns future backs to it, and
+uses reference differences for back corners, edges, and surface while
+suppressing the printed swirl and Poké Ball artwork.
 For confidently matched fronts, aligned clean-reference comparison covers the
 usable full card rather than excluding the outer border. Unmatched components
 in 12% corner zones affect Corners, components in 7% edge bands affect Edges,

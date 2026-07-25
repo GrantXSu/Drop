@@ -11,7 +11,14 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 from sklearn.dummy import DummyRegressor
 
-from drop_tracker.grading.billing import consume_scan, set_subscription, usage_status
+from drop_tracker.grading.billing import (
+    consume_scan,
+    delete_back_reference,
+    get_back_reference,
+    save_back_reference,
+    set_subscription,
+    usage_status,
+)
 import drop_tracker.grading.catalog as catalog_module
 import drop_tracker.grading.web as web_module
 from drop_tracker.grading.catalog import (
@@ -19,6 +26,7 @@ from drop_tracker.grading.catalog import (
     _embedding_match_evidence,
     _image_asset_url,
     _reference_profile,
+    apply_back_reference,
     apply_reference_baseline,
     identify_card,
 )
@@ -327,6 +335,10 @@ def test_tiny_inner_border_streak_is_labeled_small_edge_mark() -> None:
 
 def test_back_surface_uses_printed_interior_and_finds_scratches() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    noise = np.random.default_rng(31).integers(
+        -8, 9, size=card.shape, dtype=np.int16
+    )
+    card = np.clip(card.astype(np.int16) + noise, 0, 255).astype(np.uint8)
     cv2.line(card, (180, 260), (560, 610), (235, 235, 235), 3)
 
     features, diagnostics = _region_stats(card, side="back")
@@ -345,6 +357,10 @@ def test_back_surface_uses_printed_interior_and_finds_scratches() -> None:
 
 def test_multiple_high_interior_scratches_receive_low_surface_grade() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    noise = np.random.default_rng(32).integers(
+        -8, 9, size=card.shape, dtype=np.int16
+    )
+    card = np.clip(card.astype(np.int16) + noise, 0, 255).astype(np.uint8)
     for y in (250, 350, 450, 550):
         cv2.line(card, (160, y), (590, y + 180), (235, 235, 235), 3)
 
@@ -844,6 +860,8 @@ def test_ui_collapses_detected_findings() -> None:
     assert 'data-nav="settings"' in response.text
     assert 'id="prescan-card-query"' in response.text
     assert 'id="developer-password"' not in response.text
+    assert 'id="back-reference-input"' in response.text
+    assert "Clean back calibration" in response.text
 
     assert TestClient(app).get("/cards").status_code == 200
     assert TestClient(app).get("/settings").status_code == 200
@@ -1023,6 +1041,40 @@ def test_free_quota_counts_unique_cards_and_pro_is_unlimited(tmp_path: Path) -> 
     assert status["is_pro"]
     assert status["daily_limit"] is None
     assert status["can_scan"]
+
+
+def test_clean_back_reference_persists_per_device(tmp_path: Path) -> None:
+    database = tmp_path / "billing.sqlite"
+    payload = b"normalized-clean-back"
+
+    save_back_reference("device-1", payload, database)
+
+    assert get_back_reference("device-1", database) == payload
+    assert usage_status("device-1", database)["back_reference_ready"]
+    delete_back_reference("device-1", database)
+    assert get_back_reference("device-1", database) is None
+    assert not usage_status("device-1", database)["back_reference_ready"]
+
+
+def test_clean_back_reference_replaces_generic_surface_findings() -> None:
+    clean = analyze_image(back_photo_bytes(), side="back")
+    success, encoded = cv2.imencode(
+        ".jpg", clean.image, [cv2.IMWRITE_JPEG_QUALITY, 92]
+    )
+    assert success
+    damaged = analyze_image(back_photo_bytes(), side="back")
+    cv2.line(damaged.image, (180, 260), (560, 610), (235, 235, 235), 4)
+
+    applied = apply_back_reference(damaged, encoded.tobytes())
+
+    assert applied
+    assert damaged.features["surface_assessed"] == 1.0
+    assert damaged.features["surface_damage"] > 0
+    assert any(
+        finding["type"] == "Surface scratch/crease candidate"
+        and finding["location"] == "back surface"
+        for finding in damaged.diagnostics["defects"]
+    )
 
 
 def test_grade_api_enforces_three_unique_cards_per_day(

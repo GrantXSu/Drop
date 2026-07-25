@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import copy
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -717,21 +718,23 @@ def apply_reference_baseline(
 
 
 def _apply_surface_reference(
-    analysis: CardAnalysis, reference: Dict[str, object]
-) -> None:
+    analysis: CardAnalysis,
+    reference: Dict[str, object],
+    side: str = "front",
+) -> bool:
     """Locate thin observed edges absent from aligned clean artwork."""
     encoded_thumbnail = reference.get("reference_thumbnail")
     if not encoded_thumbnail:
-        return
+        return False
     try:
         reference_bytes = base64.b64decode(str(encoded_thumbnail), validate=True)
     except (binascii.Error, ValueError, TypeError):
-        return
+        return False
     reference_image = cv2.imdecode(
         np.frombuffer(reference_bytes, dtype=np.uint8), cv2.IMREAD_COLOR
     )
     if reference_image is None:
-        return
+        return False
 
     observed = cv2.resize(
         analysis.image,
@@ -748,7 +751,7 @@ def _apply_surface_reference(
         observed_gray, None
     )
     if reference_descriptors is None or observed_descriptors is None:
-        return
+        return False
     matches = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(
         reference_descriptors, observed_descriptors, k=2
     )
@@ -757,7 +760,7 @@ def _apply_surface_reference(
         if len(pair) == 2 and pair[0].distance < 0.75 * pair[1].distance:
             reliable.append(pair[0])
     if len(reliable) < 12:
-        return
+        return False
     source = np.float32(
         [reference_points[item.queryIdx].pt for item in reliable]
     ).reshape(-1, 1, 2)
@@ -772,7 +775,7 @@ def _apply_surface_reference(
         or inliers is None
         or float(inliers.mean()) < 0.45
     ):
-        return
+        return False
     aligned_reference = cv2.warpPerspective(
         reference_image,
         transform,
@@ -865,7 +868,7 @@ def _apply_surface_reference(
             continue
         if is_corner:
             category = "corner"
-            location = f"front {vertical_corner}-{horizontal_corner} corner"
+            location = f"{side} {vertical_corner}-{horizontal_corner} corner"
         elif is_edge:
             category = "edge"
             nearest_edge = min(
@@ -877,10 +880,10 @@ def _apply_surface_reference(
                 ),
                 key=lambda item: item[0],
             )[1]
-            location = f"front {nearest_edge}"
+            location = f"{side} {nearest_edge}"
         else:
             category = "surface"
-            location = "front surface"
+            location = f"{side} surface"
         anomalies.append(
             {
                 "area": int(area),
@@ -908,8 +911,8 @@ def _apply_surface_reference(
     )[:30]:
         area = anomaly["area"]
         finding_type = {
-            "corner": "Front corner anomaly",
-            "edge": "Front edge anomaly",
+            "corner": f"{side.title()} corner anomaly",
+            "edge": f"{side.title()} edge anomaly",
             "surface": "Surface scratch/crease candidate",
         }[anomaly["category"]]
         analysis.diagnostics["defects"].append(
@@ -977,6 +980,51 @@ def _apply_surface_reference(
     defect_counts["edge_weight"] = round(
         float(defect_counts.get("edge_weight", 0)) + edge_weight, 2
     )
+    return True
+
+
+def apply_back_reference(analysis: CardAnalysis, reference_bytes: bytes) -> bool:
+    """Replace generic back findings with aligned clean-reference comparison."""
+    original_features = dict(analysis.features)
+    original_diagnostics = copy.deepcopy(analysis.diagnostics)
+    for name in (
+        "edge_pale",
+        "corner_pale_mean",
+        "corner_pale_max",
+        "edge_defect_load",
+        "corner_defect_load",
+        "surface_damage",
+        "surface_assessed",
+    ):
+        analysis.features[name] = 0.0
+    analysis.diagnostics["defects"] = []
+    signals = analysis.diagnostics["condition_signals"]
+    signals["corners"] = {name: 0.0 for name in signals["corners"]}
+    signals["edges"] = {name: 0.0 for name in signals["edges"]}
+    signals["defect_counts"] = {
+        "edges": 0,
+        "corners": 0,
+        "edge_weight": 0.0,
+        "corner_weight": 0.0,
+    }
+    signals["surface"].update(
+        {
+            "reference_compared": False,
+            "localized_border_inspection": False,
+            "anomaly_count": 0,
+            "severity_weight": 0.0,
+        }
+    )
+    reference = {
+        "reference_thumbnail": base64.b64encode(reference_bytes).decode("ascii")
+    }
+    if _apply_surface_reference(analysis, reference, side="back"):
+        return True
+    analysis.features.clear()
+    analysis.features.update(original_features)
+    analysis.diagnostics.clear()
+    analysis.diagnostics.update(original_diagnostics)
+    return False
 
 
 def main() -> None:

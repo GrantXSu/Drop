@@ -842,6 +842,8 @@ def _region_stats(
             & ((value - local_value) > 12)
             & (saturation < 120)
         )
+        if features["sharpness"] < 0.08:
+            bright_scratch[:] = False
         scratch_mask = bright_scratch.astype(np.uint8) * 255
         scratch_mask = cv2.morphologyEx(
             scratch_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
