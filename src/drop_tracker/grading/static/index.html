@@ -196,12 +196,16 @@
         document.querySelector("#grade-label").textContent = prediction.label;
         document.querySelector("#range").textContent =
           `${prediction.low.toFixed(1)}–${prediction.high.toFixed(1)} range · ${prediction.confidence} confidence`;
-        document.querySelector("#metrics").innerHTML = data.categories.map(metric => `
-          <div class="metric" title="${metric.detail}">
-            <span class="metric-copy"><b>${metric.name}</b><small>${metric.condition}</small></span>
-            <div class="bar"><i style="width:${Math.max(0,Math.min(100,metric.score * 10))}%"></i></div>
-            <strong>${Number(metric.score).toFixed(1)}</strong>
-          </div>`).join("");
+        document.querySelector("#metrics").innerHTML = data.categories.map(metric => {
+          const assessed = metric.score !== null && metric.score !== undefined;
+          const width = assessed ? Math.max(0, Math.min(100, metric.score * 10)) : 0;
+          return `
+            <div class="metric" title="${metric.detail}">
+              <span class="metric-copy"><b>${metric.name}</b><small>${metric.condition}</small></span>
+              <div class="bar"><i style="width:${width}%"></i></div>
+              <strong>${assessed ? Number(metric.score).toFixed(1) : "—"}</strong>
+            </div>`;
+        }).join("");
         const warnings = data.warnings.length ? data.warnings.join(" ") : "Photo quality checks passed.";
         document.querySelector("#warnings").textContent = warnings;
         document.querySelector("#caveat").textContent = `${prediction.method}. ${prediction.caveat}`;
@@ -250,7 +254,7 @@
                 <div class="signals">
                   <div class="signal"><b>Corner evidence</b><span>Pale/color-loss pixels: ${cornerText}. Lower is better.</span></div>
                   <div class="signal"><b>Edge evidence</b><span>Confirmed pale/whitening pixels: ${edgeText}. Blur lowers confidence, not the edge score.</span></div>
-                  <div class="signal"><b>Surface evidence</b><span>Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · dark obstruction ${Number(signals.surface.dark_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
+                  <div class="signal"><b>Surface evidence</b><span>${signals.surface.reference_compared ? `Clean reference compared · ${signals.surface.anomaly_count} scratch/crease candidates` : "Not assessed — requires a confident card match with a clean reference."} Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
                 </div>
                 ${findings}
               </div>

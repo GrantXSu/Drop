@@ -18,6 +18,8 @@ BASE_FEATURES = (
     "corner_pale_max",
     "surface_glare",
     "surface_dark",
+    "surface_damage",
+    "surface_assessed",
     "sharpness",
     "exposure",
     "contrast",
@@ -67,13 +69,14 @@ def _heuristic_grade(
     front: Dict[str, float], back: Optional[Dict[str, float]]
 ) -> GradePrediction:
     subgrades = category_subgrades(front, back)
-    by_name = {item["key"]: float(item["score"]) for item in subgrades}
-    grade = (
-        by_name["centering"] * 0.20
-        + by_name["corners"] * 0.25
-        + by_name["edges"] * 0.25
-        + by_name["surface"] * 0.30
-    )
+    by_name = {
+        item["key"]: float(item["score"])
+        for item in subgrades
+        if item["score"] is not None
+    }
+    weights = {"centering": 0.20, "corners": 0.25, "edges": 0.25, "surface": 0.30}
+    available_weight = sum(weights[name] for name in by_name)
+    grade = sum(by_name[name] * weights[name] for name in by_name) / available_weight
     # A severe defect should cap the overall estimate instead of being hidden
     # by an otherwise clean card.
     grade = min(grade, min(by_name.values()) + 1.5)
@@ -270,16 +273,29 @@ def category_subgrades(
     standards = centering_standards(front, back)
     edge = max(side["edge_pale"] for side in sides)
     corner = max(side["corner_pale_max"] for side in sides)
+    surface_assessed = any(side["surface_assessed"] >= 0.5 for side in sides)
+    surface_damage = max(
+        (
+            side["surface_damage"]
+            for side in sides
+            if side["surface_assessed"] >= 0.5
+        ),
+        default=0.0,
+    )
     scores = {
         "centering": float(standards["psa"]),
         "corners": float(np.clip(10.0 - 20.0 * corner, 1.0, 10.0)),
         "edges": float(np.clip(10.0 - 25.0 * edge, 1.0, 10.0)),
-        # Glare, darkness, and blur affect confidence, not card condition.
-        # Surface remains provisional until a localized scratch/dent detector
-        # can provide evidence that is also displayed in the report.
-        "surface": 10.0,
+        "surface": (
+            float(np.clip(10.0 - 30.0 * surface_damage, 1.0, 10.0))
+            if surface_assessed
+            else None
+        ),
     }
-    scores = {name: round(value, 1) for name, value in scores.items()}
+    scores = {
+        name: round(value, 1) if value is not None else None
+        for name, value in scores.items()
+    }
     return (
         {
             "key": "centering",
@@ -310,10 +326,16 @@ def category_subgrades(
             "key": "surface",
             "name": "Surface",
             "score": scores["surface"],
-            "condition": _condition(scores["surface"]),
+            "condition": (
+                _condition(scores["surface"])
+                if scores["surface"] is not None
+                else "Not assessed"
+            ),
             "detail": (
-                "Provisional: image blur and glare lower confidence but are not "
-                "treated as physical damage."
+                "Compared with aligned clean reference artwork for localized "
+                "scratches and creases."
+                if surface_assessed
+                else "Requires a confident catalog match and usable clean reference."
             ),
         },
     )

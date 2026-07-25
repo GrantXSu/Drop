@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ pytest.importorskip("sklearn")
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+import drop_tracker.grading.catalog as catalog_module
 from drop_tracker.grading.catalog import (
     _connect,
     _reference_profile,
@@ -170,8 +172,8 @@ def test_photo_quality_does_not_create_hidden_damage_penalties() -> None:
 
     assert categories["corners"]["score"] == 10.0
     assert categories["edges"]["score"] == 10.0
-    assert categories["surface"]["score"] == 10.0
-    assert "confidence" in categories["surface"]["detail"]
+    assert categories["surface"]["score"] is None
+    assert categories["surface"]["condition"] == "Not assessed"
     pristine_photo = dict(clean)
     pristine_photo.update(
         {"surface_glare": 0.0, "surface_dark": 0.0, "sharpness": 1.0}
@@ -351,6 +353,41 @@ def test_catalog_identifies_matching_reference(tmp_path: Path) -> None:
     assert matches[0]["confidence"] == 1.0
 
 
+def test_catalog_all_mode_discovers_every_english_series(
+    monkeypatch, tmp_path: Path
+) -> None:
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    responses = {
+        "series": [{"id": "base"}, {"id": "sv"}, {"id": "me"}],
+        "series/base": {"id": "base", "name": "Base", "sets": []},
+        "series/sv": {"id": "sv", "name": "Scarlet & Violet", "sets": []},
+        "series/me": {"id": "me", "name": "Mega Evolution", "sets": []},
+    }
+    monkeypatch.setattr(catalog_module.httpx, "Client", FakeClient)
+    monkeypatch.setattr(
+        catalog_module,
+        "_json_get",
+        lambda client, path: responses[path],
+    )
+
+    report = catalog_module.sync_catalog(
+        tmp_path / "all-english.sqlite",
+        series_ids=("all",),
+        with_images=False,
+    )
+
+    assert report["series"] == ["base", "sv", "me"]
+
+
 def test_catalog_reference_calibrates_layout_without_moving_guides() -> None:
     analysis = analyze_image(card_image_bytes(), side="front")
     original_guides = dict(analysis.diagnostics["centering"]["guides"])
@@ -374,6 +411,56 @@ def test_catalog_reference_calibrates_layout_without_moving_guides() -> None:
     assert centering["reference_calibrated"]
 
 
+def test_catalog_reference_grades_visible_surface_scratch() -> None:
+    image = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (75, 115, 165), dtype=np.uint8)
+    rng = np.random.default_rng(19)
+    for _ in range(80):
+        center = (
+            int(rng.integers(45, CARD_WIDTH - 45)),
+            int(rng.integers(55, CARD_HEIGHT - 55)),
+        )
+        color = tuple(int(value) for value in rng.integers(30, 230, size=3))
+        cv2.circle(image, center, int(rng.integers(4, 18)), color, -1)
+    cv2.rectangle(image, (28, 30), (CARD_WIDTH - 29, CARD_HEIGHT - 31), (190, 190, 190), 8)
+    success, encoded = cv2.imencode(".png", image)
+    assert success
+    _, _, reference_json = _reference_profile(encoded.tobytes())
+    reference_features = json.loads(reference_json)
+    clean_analysis = analyze_image(encoded.tobytes(), side="front")
+    apply_reference_baseline(
+        clean_analysis,
+        {
+            "id": "surface-reference",
+            "confidence": 1.0,
+            "reference_features": reference_features,
+        },
+    )
+    assert clean_analysis.features["surface_assessed"] == 1.0
+    assert clean_analysis.features["surface_damage"] == 0.0
+
+    analysis = analyze_image(encoded.tobytes(), side="front")
+    cv2.line(analysis.image, (130, 170), (620, 830), (245, 245, 245), 5)
+
+    apply_reference_baseline(
+        analysis,
+        {
+            "id": "surface-reference",
+            "confidence": 1.0,
+            "reference_features": reference_features,
+        },
+    )
+
+    assert analysis.features["surface_assessed"] == 1.0
+    assert analysis.features["surface_damage"] > 0
+    assert any(
+        finding["type"] == "Surface scratch/crease candidate"
+        for finding in analysis.diagnostics["defects"]
+    )
+    surface = category_subgrades(analysis.features, None)[-1]
+    assert surface["score"] is not None
+    assert surface["score"] < 10.0
+
+
 def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("CARD_GRADER_MODEL", str(tmp_path / "missing.joblib"))
     client = TestClient(app)
@@ -392,7 +479,11 @@ def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
         "Edges",
         "Surface",
     ]
-    assert all(1.0 <= category["score"] <= 10.0 for category in payload["categories"])
+    assert all(
+        category["score"] is None or 1.0 <= category["score"] <= 10.0
+        for category in payload["categories"]
+    )
+    assert payload["categories"][-1]["condition"] == "Not assessed"
     assert payload["prediction"]["label"]
     assert "Add a back photo" in payload["warnings"][-1]
     assert payload["visual_reports"][0]["side"] == "Front"

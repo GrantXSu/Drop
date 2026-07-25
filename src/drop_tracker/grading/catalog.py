@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -19,7 +21,7 @@ from .features import CardAnalysis, analyze_image
 
 API_BASE = "https://api.tcgdex.net/v2/en"
 DEFAULT_CATALOG_PATH = Path("data/grading/card_catalog.sqlite")
-DEFAULT_SERIES = ("swsh", "sv", "me")
+DEFAULT_SERIES = ("all",)
 USER_AGENT = "DropCardGrader/0.1 (catalog sync; TCGdex)"
 
 
@@ -68,7 +70,7 @@ def _connect(path: Path) -> sqlite3.Connection:
     return connection
 
 
-def _json_get(client: httpx.Client, path: str) -> Dict[str, object]:
+def _json_get(client: httpx.Client, path: str) -> object:
     response = client.get(f"{API_BASE}/{path}")
     response.raise_for_status()
     return response.json()
@@ -108,6 +110,14 @@ def _reference_profile(data: bytes) -> Tuple[str, str, str]:
     }
     features["centering_distances"] = analysis.diagnostics["centering"]["distances"]
     features["card_dimensions"] = analysis.diagnostics["centering"]["card_dimensions"]
+    thumbnail = cv2.resize(analysis.image, (256, 358), interpolation=cv2.INTER_AREA)
+    success, encoded = cv2.imencode(
+        ".jpg", thumbnail, [cv2.IMWRITE_JPEG_QUALITY, 72]
+    )
+    if success:
+        features["reference_thumbnail"] = base64.b64encode(
+            encoded.tobytes()
+        ).decode("ascii")
     return (
         _perceptual_hash(analysis.image),
         json.dumps(_color_signature(analysis.image), separators=(",", ":")),
@@ -145,8 +155,20 @@ def sync_catalog(
     set_count = 0
 
     with httpx.Client(timeout=30.0, headers={"User-Agent": USER_AGENT}) as client:
-        for series_id in series_ids:
+        resolved_series = list(series_ids)
+        if "all" in resolved_series:
+            series_index = _json_get(client, "series")
+            if not isinstance(series_index, list):
+                raise ValueError("TCGdex returned an invalid English series index.")
+            resolved_series = [
+                str(item["id"])
+                for item in series_index
+                if isinstance(item, dict) and item.get("id")
+            ]
+        for series_id in resolved_series:
             series = _json_get(client, f"series/{series_id}")
+            if not isinstance(series, dict):
+                raise ValueError(f"TCGdex returned invalid series data for {series_id}.")
             connection.execute(
                 """
                 INSERT INTO series(id, name, release_date, synced_at)
@@ -237,6 +259,7 @@ def sync_catalog(
                             not existing
                             or not existing["perceptual_hash"]
                             or "centering_distances" not in reference
+                            or "reference_thumbnail" not in reference
                         ):
                             cards_to_profile.append(card)
                 connection.commit()
@@ -276,7 +299,7 @@ def sync_catalog(
     connection.close()
     return {
         "database": str(path),
-        "series": list(series_ids),
+        "series": resolved_series,
         "sets": set_count,
         "cards": card_count,
         "visual_profiles": profile_count,
@@ -363,6 +386,7 @@ def apply_reference_baseline(
     reference = match.get("reference_features")
     if not reference:
         return
+    _apply_surface_reference(analysis, reference)
     expected = reference.get("centering_distances")
     if not expected:
         return
@@ -416,6 +440,155 @@ def apply_reference_baseline(
     )
     analysis.features["centering_x"] = horizontal
     analysis.features["centering_y"] = vertical
+
+
+def _apply_surface_reference(
+    analysis: CardAnalysis, reference: Dict[str, object]
+) -> None:
+    """Locate thin observed edges absent from aligned clean artwork."""
+    encoded_thumbnail = reference.get("reference_thumbnail")
+    if not encoded_thumbnail:
+        return
+    try:
+        reference_bytes = base64.b64decode(str(encoded_thumbnail), validate=True)
+    except (binascii.Error, ValueError, TypeError):
+        return
+    reference_image = cv2.imdecode(
+        np.frombuffer(reference_bytes, dtype=np.uint8), cv2.IMREAD_COLOR
+    )
+    if reference_image is None:
+        return
+
+    observed = cv2.resize(
+        analysis.image,
+        (reference_image.shape[1], reference_image.shape[0]),
+        interpolation=cv2.INTER_AREA,
+    )
+    observed_gray = cv2.cvtColor(observed, cv2.COLOR_BGR2GRAY)
+    reference_gray = cv2.cvtColor(reference_image, cv2.COLOR_BGR2GRAY)
+    detector = cv2.ORB_create(nfeatures=1200, fastThreshold=10)
+    reference_points, reference_descriptors = detector.detectAndCompute(
+        reference_gray, None
+    )
+    observed_points, observed_descriptors = detector.detectAndCompute(
+        observed_gray, None
+    )
+    if reference_descriptors is None or observed_descriptors is None:
+        return
+    matches = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(
+        reference_descriptors, observed_descriptors, k=2
+    )
+    reliable = []
+    for pair in matches:
+        if len(pair) == 2 and pair[0].distance < 0.75 * pair[1].distance:
+            reliable.append(pair[0])
+    if len(reliable) < 12:
+        return
+    source = np.float32(
+        [reference_points[item.queryIdx].pt for item in reliable]
+    ).reshape(-1, 1, 2)
+    destination = np.float32(
+        [observed_points[item.trainIdx].pt for item in reliable]
+    ).reshape(-1, 1, 2)
+    transform, inliers = cv2.findHomography(
+        source, destination, cv2.RANSAC, 3.0
+    )
+    if (
+        transform is None
+        or inliers is None
+        or float(inliers.mean()) < 0.45
+    ):
+        return
+    aligned_reference = cv2.warpPerspective(
+        reference_image,
+        transform,
+        (observed.shape[1], observed.shape[0]),
+    )
+    aligned_gray = cv2.cvtColor(aligned_reference, cv2.COLOR_BGR2GRAY)
+    observed_edges = cv2.Canny(
+        cv2.GaussianBlur(observed_gray, (3, 3), 0), 45, 125
+    )
+    reference_edges = cv2.Canny(
+        cv2.GaussianBlur(aligned_gray, (3, 3), 0), 45, 125
+    )
+    known_edges = cv2.dilate(reference_edges, np.ones((5, 5), np.uint8))
+    extra_edges = cv2.bitwise_and(observed_edges, cv2.bitwise_not(known_edges))
+
+    hsv = cv2.cvtColor(observed, cv2.COLOR_BGR2HSV)
+    glare_candidates = (
+        ((hsv[:, :, 1] < 35) & (hsv[:, :, 2] > 235)).astype(np.uint8) * 255
+    )
+    glare_count, glare_labels, glare_stats, _ = cv2.connectedComponentsWithStats(
+        glare_candidates
+    )
+    broad_glare = np.zeros_like(glare_candidates)
+    for index in range(1, glare_count):
+        _, _, glare_width, glare_height, glare_area = glare_stats[index]
+        glare_length = max(glare_width, glare_height)
+        if glare_area >= 30 and glare_area / max(1, glare_length) > 7:
+            broad_glare[glare_labels == index] = 255
+    broad_glare = cv2.dilate(broad_glare, np.ones((9, 9), np.uint8))
+    extra_edges[broad_glare > 0] = 0
+    margin_x = round(observed.shape[1] * 0.06)
+    margin_y = round(observed.shape[0] * 0.06)
+    interior = np.zeros_like(extra_edges)
+    interior[
+        margin_y : observed.shape[0] - margin_y,
+        margin_x : observed.shape[1] - margin_x,
+    ] = 255
+    extra_edges = cv2.bitwise_and(extra_edges, interior)
+    extra_edges = cv2.morphologyEx(
+        extra_edges, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
+    )
+
+    component_count, component_labels, stats, _ = cv2.connectedComponentsWithStats(
+        extra_edges
+    )
+    anomalies = []
+    for index in range(1, component_count):
+        x, y, width, height, area = stats[index]
+        short, long = sorted((width, height))
+        if area < 7 or long < 8 or short <= 0:
+            continue
+        coordinates = np.column_stack(np.where(component_labels == index))
+        covariance = np.cov(coordinates, rowvar=False)
+        eigenvalues = np.linalg.eigvalsh(covariance)
+        elongation = float(
+            np.sqrt(max(eigenvalues) / max(0.5, min(eigenvalues)))
+        )
+        diagonal = float(np.hypot(width, height))
+        if elongation < 2.2 or area / max(1.0, diagonal) > 6.0:
+            continue
+        if width > observed.shape[1] * 0.85 or height > observed.shape[0] * 0.85:
+            continue
+        anomalies.append((int(area), int(x), int(y), int(width), int(height)))
+
+    scale_x = analysis.image.shape[1] / observed.shape[1]
+    scale_y = analysis.image.shape[0] / observed.shape[0]
+    for area, x, y, width, height in sorted(anomalies, reverse=True)[:20]:
+        analysis.diagnostics["defects"].append(
+            {
+                "type": "Surface scratch/crease candidate",
+                "location": "front surface",
+                "severity": "high" if area >= 80 else "medium",
+                "evidence": f"{area} reference-unmatched edge pixels",
+                "bbox": (
+                    round(x * scale_x),
+                    round(y * scale_y),
+                    round((x + width) * scale_x),
+                    round((y + height) * scale_y),
+                ),
+            }
+        )
+    total_area = sum(item[0] for item in anomalies)
+    damage = float(
+        np.clip(total_area / (observed.shape[0] * observed.shape[1] * 0.015), 0, 1)
+    )
+    analysis.features["surface_damage"] = damage
+    analysis.features["surface_assessed"] = 1.0
+    surface_signals = analysis.diagnostics["condition_signals"]["surface"]
+    surface_signals["reference_compared"] = True
+    surface_signals["anomaly_count"] = len(anomalies)
 
 
 def main() -> None:

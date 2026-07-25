@@ -156,9 +156,8 @@ photos to a hosted service.
 
 ### Sync the card identification catalog
 
-CardLens can identify English cards from Sword & Shield, Scarlet & Violet, and
-Mega Evolution onward using the open-source [TCGdex](https://tcgdex.dev/)
-database:
+CardLens can identify cards from every English series exposed by the
+open-source [TCGdex](https://tcgdex.dev/) database:
 
 ```sh
 drop-sync-card-catalog
@@ -167,10 +166,13 @@ drop-sync-card-catalog
 The command stores card names, sets, numbers, reference URLs, visual
 fingerprints, and clean-card condition baselines in
 `data/grading/card_catalog.sqlite`. It does not retain copies of the reference
-images. Re-run it to add newly released sets. Identification is visual and may
-confuse parallel, reverse-holo, or similarly illustrated printings. For
-confident matches, the clean reference layout calibrates expected print
-placement without moving the detected border guides.
+images outside the database; compact reference thumbnails are retained for
+surface comparison. Re-run it to add newly released sets. The first complete
+sync downloads and profiles many thousands of cards and can take a while.
+Identification is visual and may confuse parallel, reverse-holo, or similarly
+illustrated printings. For confident matches, the clean reference layout
+calibrates expected print placement and checks for localized surface anomalies
+without moving the detected border guides.
 
 ### Train it with verified samples
 
