@@ -216,6 +216,7 @@ async def grade_card(
         "categories": defect_summary(
             front_analysis.features,
             back_analysis.features if back_analysis else None,
+            model_path,
         ),
         "warnings": warnings,
         "visual_reports": visual_reports,

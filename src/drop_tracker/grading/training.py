@@ -21,7 +21,21 @@ from .model import DEFAULT_MODEL_PATH, FEATURE_NAMES, feature_vector
 
 
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
-REQUIRED_COLUMNS = {"grade", "front", "source_url", "usage_rights"}
+REQUIRED_COLUMNS = {
+    "grading_company",
+    "overall_grade",
+    "front",
+    "source_url",
+    "usage_rights",
+}
+TARGET_COLUMNS = {
+    "PSA": {"psa_overall": "overall_grade"},
+    "BGS": {
+        "bgs_overall": "overall_grade",
+        "bgs_corners": "bgs_corners",
+        "bgs_edges": "bgs_edges",
+    },
+}
 
 
 def _read_image(reference: str, manifest_directory: Path) -> bytes:
@@ -55,20 +69,37 @@ def _read_image(reference: str, manifest_directory: Path) -> bytes:
     return path.read_bytes()
 
 
-def _validate_row(row: Dict[str, str], row_number: int) -> float:
-    try:
-        grade = float(row["grade"])
-    except (KeyError, ValueError) as error:
-        raise ValueError(f"Row {row_number}: grade must be a number.") from error
-    if not 1.0 <= grade <= 10.0:
-        raise ValueError(f"Row {row_number}: grade must be between 1 and 10.")
+def _validate_row(row: Dict[str, str], row_number: int) -> Dict[str, float]:
+    company = row.get("grading_company", "").strip().upper()
+    if company not in TARGET_COLUMNS:
+        raise ValueError(f"Row {row_number}: grading_company must be PSA or BGS.")
+    targets: Dict[str, float] = {}
+    for target, column in TARGET_COLUMNS[company].items():
+        raw_value = row.get(column, "").strip()
+        if not raw_value:
+            if target.endswith("overall"):
+                raise ValueError(f"Row {row_number}: overall_grade is required.")
+            continue
+        try:
+            value = float(raw_value)
+        except ValueError as error:
+            raise ValueError(f"Row {row_number}: {column} must be a number.") from error
+        if not 1.0 <= value <= 10.0:
+            raise ValueError(f"Row {row_number}: {column} must be between 1 and 10.")
+        if company == "BGS" and abs(value * 2 - round(value * 2)) > 1e-6:
+            raise ValueError(
+                f"Row {row_number}: BGS labels must use 0.5-point increments."
+            )
+        targets[target] = value
     if not row.get("front", "").strip():
         raise ValueError(f"Row {row_number}: front is required.")
     if not row.get("source_url", "").startswith(("http://", "https://")):
         raise ValueError(f"Row {row_number}: source_url must document the public source.")
     if not row.get("usage_rights", "").strip():
         raise ValueError(f"Row {row_number}: usage_rights is required.")
-    return grade
+    if not row.get("certification_number", "").strip():
+        raise ValueError(f"Row {row_number}: certification_number is required.")
+    return targets
 
 
 def _quality_issue(features: Dict[str, float], side: str) -> Optional[str]:
@@ -82,6 +113,48 @@ def _quality_issue(features: Dict[str, float], side: str) -> Optional[str]:
     return None
 
 
+def _fit_target(
+    records: List[Dict[str, object]], target: str, random_seed: int
+) -> Optional[Dict[str, object]]:
+    labeled = [record for record in records if target in record["targets"]]
+    if len(labeled) < 100:
+        return None
+    groups = [str(record["group"]) for record in labeled]
+    targets = np.asarray(
+        [float(record["targets"][target]) for record in labeled],
+        dtype=np.float64,
+    )
+    if len(set(groups)) < 80:
+        return None
+    if len(set(np.rint(targets).astype(int))) < 4:
+        return None
+    features = np.vstack([record["vector"] for record in labeled])
+    split = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=random_seed)
+    train_indices, test_indices = next(split.split(features, targets, groups))
+    model = HistGradientBoostingRegressor(
+        learning_rate=0.06,
+        max_iter=300,
+        max_leaf_nodes=15,
+        l2_regularization=1.0,
+        random_state=random_seed,
+    )
+    model.fit(features[train_indices], targets[train_indices])
+    predictions = model.predict(features[test_indices])
+    validation_mae = float(mean_absolute_error(targets[test_indices], predictions))
+    return {
+        "model": model,
+        "samples": len(labeled),
+        "validation_mae": validation_mae,
+        "validation_within_one": float(
+            np.mean(np.abs(predictions - targets[test_indices]) <= 1.0)
+        ),
+        "grade_distribution": {
+            str(grade): int(np.sum(np.rint(targets) == grade))
+            for grade in sorted(set(np.rint(targets).astype(int)))
+        },
+    }
+
+
 def train(
     manifest_path: Path,
     output_path: Path = DEFAULT_MODEL_PATH,
@@ -89,9 +162,7 @@ def train(
 ) -> Dict[str, object]:
     """Extract visual features, evaluate a holdout, and save a model artifact."""
     manifest_path = manifest_path.resolve()
-    vectors: List[np.ndarray] = []
-    grades: List[float] = []
-    groups: List[str] = []
+    records: List[Dict[str, object]] = []
     rejected: List[Dict[str, object]] = []
 
     with manifest_path.open(newline="", encoding="utf-8") as handle:
@@ -102,7 +173,7 @@ def train(
 
         for row_number, row in enumerate(reader, start=2):
             try:
-                grade = _validate_row(row, row_number)
+                targets = _validate_row(row, row_number)
                 front = analyze_image(
                     _read_image(row["front"].strip(), manifest_path.parent),
                     side="front",
@@ -122,59 +193,59 @@ def train(
                     issue = _quality_issue(back, "back")
                     if issue:
                         raise ValueError(issue)
-                vectors.append(feature_vector(front, back))
-                grades.append(grade)
-                groups.append(row["source_url"].strip())
+                records.append(
+                    {
+                        "vector": feature_vector(front, back),
+                        "targets": targets,
+                        "group": row["source_url"].strip(),
+                    }
+                )
             except (CardImageError, FileNotFoundError, httpx.HTTPError, ValueError) as error:
                 rejected.append({"row": row_number, "reason": str(error)})
 
-    if len(vectors) < 100:
+    if len(records) < 100:
         raise ValueError(
-            f"Only {len(vectors)} valid samples were found; at least 100 are required."
+            f"Only {len(records)} valid samples were found; at least 100 are required."
         )
-
-    features = np.vstack(vectors)
-    targets = np.asarray(grades)
-    if len(set(groups)) < 80:
-        raise ValueError("At least 80 distinct source cards are required for a holdout.")
-    if len(set(round(grade) for grade in grades)) < 4:
-        raise ValueError("Samples must cover at least 4 distinct whole-grade bands.")
-    split = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=random_seed)
-    train_indices, test_indices = next(split.split(features, targets, groups))
-    x_train, x_test = features[train_indices], features[test_indices]
-    y_train, y_test = targets[train_indices], targets[test_indices]
-    model = HistGradientBoostingRegressor(
-        learning_rate=0.06,
-        max_iter=300,
-        max_leaf_nodes=15,
-        l2_regularization=1.0,
-        random_state=random_seed,
-    )
-    model.fit(x_train, y_train)
-    predictions = model.predict(x_test)
-    validation_mae = float(mean_absolute_error(y_test, predictions))
-    within_one = float(np.mean(np.abs(predictions - y_test) <= 1.0))
+    trained = {
+        target: result
+        for target in (
+            "psa_overall",
+            "bgs_overall",
+            "bgs_corners",
+            "bgs_edges",
+        )
+        if (result := _fit_target(records, target, random_seed)) is not None
+    }
+    if not trained:
+        raise ValueError(
+            "No target has 100 labels from 80 distinct cards across four grade bands."
+        )
     artifact = {
-        "model": model,
+        "models": {target: result["model"] for target, result in trained.items()},
         "feature_names": FEATURE_NAMES,
-        "sample_count": len(vectors),
-        "validation_mae": validation_mae,
-        "validation_within_one": within_one,
-        "grade_distribution": {
-            str(grade): int(np.sum(np.rint(targets) == grade))
-            for grade in sorted(set(np.rint(targets).astype(int)))
+        "sample_count": len(records),
+        "targets": {
+            target: {
+                key: value
+                for key, value in result.items()
+                if key != "model"
+            }
+            for target, result in trained.items()
         },
-        "training_policy": "verified labels; capture-quality gated; grouped holdout",
+        "training_policy": (
+            "PSA overall and BGS category labels; verified certification; "
+            "capture-quality gated; grouped holdout"
+        ),
         "manifest": str(manifest_path),
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(artifact, output_path)
     return {
         "model_path": str(output_path),
-        "samples": len(vectors),
+        "samples": len(records),
         "rejected": rejected,
-        "validation_mae": round(validation_mae, 3),
-        "validation_within_one": round(within_one, 3),
+        "targets": artifact["targets"],
     }
 
 

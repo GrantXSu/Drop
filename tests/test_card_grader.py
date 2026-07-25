@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import joblib
 import pytest
 
 cv2 = pytest.importorskip("cv2")
@@ -8,6 +9,7 @@ np = pytest.importorskip("numpy")
 pytest.importorskip("sklearn")
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
+from sklearn.dummy import DummyRegressor
 
 import drop_tracker.grading.catalog as catalog_module
 from drop_tracker.grading.catalog import (
@@ -28,11 +30,13 @@ from drop_tracker.grading.features import (
 )
 from drop_tracker.grading.model import (
     BASE_FEATURES,
+    FEATURE_NAMES,
     category_subgrades,
     centering_standards,
     feature_vector,
     predict_grade,
 )
+from drop_tracker.grading.training import _validate_row
 from drop_tracker.grading.web import app
 
 
@@ -310,6 +314,77 @@ def test_prediction_uses_disclosed_fallback_without_model(tmp_path: Path) -> Non
     assert prediction.low <= prediction.grade <= prediction.high
     assert prediction.method == "untrained visual heuristic"
     assert prediction.confidence == "low"
+
+
+def test_training_labels_separate_psa_overall_from_bgs_subgrades() -> None:
+    common = {
+        "front": "front.jpg",
+        "back": "back.jpg",
+        "source_url": "https://example.com/cert",
+        "usage_rights": "owner permission",
+        "certification_number": "12345",
+    }
+    psa = _validate_row(
+        {
+            **common,
+            "grading_company": "PSA",
+            "overall_grade": "9",
+            "bgs_corners": "",
+            "bgs_edges": "",
+        },
+        2,
+    )
+    bgs = _validate_row(
+        {
+            **common,
+            "grading_company": "BGS",
+            "overall_grade": "9.5",
+            "bgs_corners": "9.5",
+            "bgs_edges": "9",
+        },
+        3,
+    )
+
+    assert psa == {"psa_overall": 9.0}
+    assert bgs == {
+        "bgs_overall": 9.5,
+        "bgs_corners": 9.5,
+        "bgs_edges": 9.0,
+    }
+
+
+def test_validated_bgs_models_supply_corner_and_edge_subgrades(
+    tmp_path: Path,
+) -> None:
+    features = np.zeros((2, len(FEATURE_NAMES)), dtype=np.float64)
+    corners = DummyRegressor(strategy="constant", constant=8.5).fit(
+        features, np.array([8.5, 8.5])
+    )
+    edges = DummyRegressor(strategy="constant", constant=7.0).fit(
+        features, np.array([7.0, 7.0])
+    )
+    artifact = {
+        "feature_names": FEATURE_NAMES,
+        "models": {"bgs_corners": corners, "bgs_edges": edges},
+        "targets": {
+            "bgs_corners": {"samples": 150, "validation_mae": 0.5},
+            "bgs_edges": {"samples": 150, "validation_mae": 0.6},
+        },
+    }
+    model_path = tmp_path / "categories.joblib"
+    joblib.dump(artifact, model_path)
+    clean = {name: 0.0 for name in BASE_FEATURES}
+    clean.update({"centering_x": 1.0, "centering_y": 1.0})
+
+    categories = {
+        item["key"]: item
+        for item in category_subgrades(clean, clean, model_path)
+    }
+
+    assert categories["corners"]["score"] == 8.5
+    assert categories["edges"]["score"] == 7.0
+    assert categories["corners"]["method"] == "trained BGS subgrade"
+    assert categories["edges"]["method"] == "trained BGS subgrade"
 
 
 def test_centering_uses_psa_and_beckett_thresholds() -> None:

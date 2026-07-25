@@ -190,27 +190,33 @@ Enter a name, number, set, or combination such as `Pikachu 065`, then choose
 Copy `examples/grading_manifest.csv` and add one row per graded card:
 
 ```csv
-grade,front,back,source_url,usage_rights
-10,images/card-001-front.jpg,images/card-001-back.jpg,https://example.com/cert/001,owner permission
+grading_company,overall_grade,bgs_corners,bgs_edges,front,back,source_url,usage_rights,certification_number
+PSA,9,,,images/psa-front.jpg,images/psa-back.jpg,https://example.com/psa-cert,owner permission,12345678
+BGS,9.5,9.5,9,images/bgs-front.jpg,images/bgs-back.jpg,https://example.com/bgs-cert,owner permission,87654321
 ```
 
 `front` and `back` can be local paths relative to the CSV or direct public image
 URLs. `source_url` records where the grade was verified, and `usage_rights`
-records why the image can legally be used. Then run:
+records why the image can legally be used. `certification_number` prevents
+unverifiable labels. PSA rows train the overall PSA target. PSA does not publish
+numeric corner or edge subgrades, so those fields must remain blank for PSA.
+BGS rows can train separate corner and edge targets from slab subgrades. Then
+run:
 
 ```sh
 drop-train-grader path/to/grading_manifest.csv
 drop-card-grader
 ```
 
-The trainer rejects blurry, overexposed, underexposed, and glare-obscured
-images, holds out entire source cards, reports mean absolute error and the
-percentage of predictions within one grade, and saves
-`models/card_grader.joblib`. Capture-quality signals affect confidence but are
-not model inputs or physical-damage penalties. It requires at least 100 valid
-samples from 80 distinct cards across four grade bands. A production-quality
-model still needs hundreds or thousands of diverse, correctly labeled
-front-and-back examples.
+The trainer fits separate `psa_overall`, `bgs_corners`, and `bgs_edges` targets.
+Each target independently requires at least 100 labels from 80 distinct cards
+across four grade bands. It rejects blurry, overexposed, underexposed, and
+glare-obscured images, holds out entire source cards, reports target-specific
+mean absolute error, and saves `models/card_grader.joblib`. BGS category models
+are used only when holdout MAE is 1.0 or better. Capture-quality signals affect
+confidence but are not model inputs or physical-damage penalties. A
+production-quality model still needs hundreds or thousands of diverse,
+correctly labeled front-and-back examples.
 
 Publicly viewable PSA grades and images are not automatically licensed for
 bulk scraping or model training. The project therefore imports an explicit

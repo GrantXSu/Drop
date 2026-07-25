@@ -121,10 +121,22 @@ def predict_grade(
     if artifact is None:
         return _heuristic_grade(front, back)
 
+    models = artifact.get("models", {})
+    model = models.get("psa_overall") if isinstance(models, dict) else None
+    target_metrics = (
+        artifact.get("targets", {}).get("psa_overall", {})
+        if isinstance(artifact.get("targets", {}), dict)
+        else {}
+    )
+    if model is None:
+        model = artifact.get("model")
+        target_metrics = artifact
+    if model is None:
+        return _heuristic_grade(front, back)
     vector = feature_vector(front, back).reshape(1, -1)
-    grade = float(np.clip(artifact["model"].predict(vector)[0], 1.0, 10.0))
-    validation_mae = float(artifact.get("validation_mae", 1.5))
-    sample_count = int(artifact.get("sample_count", 0))
+    grade = float(np.clip(model.predict(vector)[0], 1.0, 10.0))
+    validation_mae = float(target_metrics.get("validation_mae", 1.5))
+    sample_count = int(target_metrics.get("samples", artifact.get("sample_count", 0)))
     uncertainty = max(0.6, min(2.5, validation_mae * 1.65))
     confidence = "high" if sample_count >= 1000 and validation_mae <= 0.6 else "medium"
     if sample_count < 250 or validation_mae > 1.0:
@@ -145,9 +157,11 @@ def predict_grade(
 
 
 def defect_summary(
-    front: Dict[str, float], back: Optional[Dict[str, float]]
+    front: Dict[str, float],
+    back: Optional[Dict[str, float]],
+    model_path: Optional[Path] = None,
 ) -> Tuple[Dict[str, object], ...]:
-    return category_subgrades(front, back)
+    return category_subgrades(front, back, model_path)
 
 
 def _condition(score: float) -> str:
@@ -272,8 +286,39 @@ def centering_standards(
     }
 
 
+def _trained_bgs_subgrades(
+    front: Dict[str, float],
+    back: Optional[Dict[str, float]],
+    model_path: Optional[Path],
+) -> Dict[str, Dict[str, object]]:
+    if model_path is None:
+        return {}
+    artifact = _load_artifact(model_path)
+    if artifact is None or not isinstance(artifact.get("models"), dict):
+        return {}
+    vector = feature_vector(front, back).reshape(1, -1)
+    predictions = {}
+    for category, target in (("corners", "bgs_corners"), ("edges", "bgs_edges")):
+        model = artifact["models"].get(target)
+        metrics = artifact.get("targets", {}).get(target, {})
+        if (
+            model is None
+            or int(metrics.get("samples", 0)) < 100
+            or float(metrics.get("validation_mae", 99.0)) > 1.0
+        ):
+            continue
+        predictions[category] = {
+            "score": float(np.clip(model.predict(vector)[0], 1.0, 10.0)),
+            "samples": int(metrics["samples"]),
+            "validation_mae": float(metrics["validation_mae"]),
+        }
+    return predictions
+
+
 def category_subgrades(
-    front: Dict[str, float], back: Optional[Dict[str, float]]
+    front: Dict[str, float],
+    back: Optional[Dict[str, float]],
+    model_path: Optional[Path] = None,
 ) -> Tuple[Dict[str, object], ...]:
     """Produce DGC-style decimal subgrades from measurable visual signals."""
     sides = (front,) if back is None else (front, back)
@@ -305,6 +350,10 @@ def category_subgrades(
             else None
         ),
     }
+    trained = _trained_bgs_subgrades(front, back, model_path)
+    for category in ("corners", "edges"):
+        if category in trained:
+            scores[category] = trained[category]["score"]
     scores = {
         name: round(value, 1) if value is not None else None
         for name, value in scores.items()
@@ -327,9 +376,15 @@ def category_subgrades(
             "score": scores["corners"],
             "condition": _condition(scores["corners"]),
             "detail": (
-                "Uses localized corner damage area and repeated finding count "
+                (
+                    f"BGS subgrade model: {trained['corners']['samples']} samples, "
+                    f"holdout MAE {trained['corners']['validation_mae']:.2f}."
+                )
+                if "corners" in trained
+                else "Uses localized corner damage area and repeated finding count "
                 "shown in the visual report."
             ),
+            "method": "trained BGS subgrade" if "corners" in trained else "visual heuristic",
         },
         {
             "key": "edges",
@@ -337,9 +392,15 @@ def category_subgrades(
             "score": scores["edges"],
             "condition": _condition(scores["edges"]),
             "detail": (
-                "Uses localized edge damage area and repeated finding count "
+                (
+                    f"BGS subgrade model: {trained['edges']['samples']} samples, "
+                    f"holdout MAE {trained['edges']['validation_mae']:.2f}."
+                )
+                if "edges" in trained
+                else "Uses localized edge damage area and repeated finding count "
                 "shown in the visual report."
             ),
+            "method": "trained BGS subgrade" if "edges" in trained else "visual heuristic",
         },
         {
             "key": "surface",
