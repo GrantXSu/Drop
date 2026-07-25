@@ -97,7 +97,7 @@ def _heuristic_grade(
         method="untrained visual heuristic",
         model_samples=0,
         caveat=(
-            "Prototype estimate only. Train the model on verified, licensed PSA "
+            "Untrained visual estimate only. Train the model on verified, licensed PSA "
             "examples before using it to make buying or submission decisions."
         ),
     )

@@ -314,6 +314,7 @@ def test_prediction_uses_disclosed_fallback_without_model(tmp_path: Path) -> Non
     assert prediction.low <= prediction.grade <= prediction.high
     assert prediction.method == "untrained visual heuristic"
     assert prediction.confidence == "low"
+    assert "Prototype" not in prediction.caveat
 
 
 def test_training_labels_separate_psa_overall_from_bgs_subgrades() -> None:
@@ -609,6 +610,9 @@ def test_ui_collapses_detected_findings() -> None:
     assert "Detected findings (" in response.text
     assert "Enable line adjustment" in response.text
     assert 'class="drag-guide' in response.text
+    assert "Accuracy checklist before scanning" in response.text
+    assert "viewport-fit=cover" in response.text
+    assert "Prototype" not in response.text
 
 
 def test_grade_api_applies_manual_centering_guides(monkeypatch, tmp_path: Path) -> None:

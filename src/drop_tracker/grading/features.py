@@ -1011,6 +1011,11 @@ def analyze_image(data: bytes, side: Optional[str] = None) -> CardAnalysis:
     card, warnings, source_boundary = normalize_card(source_image, side)
     features, diagnostics = _region_stats(card, side)
     quality_warnings = list(warnings)
+    if min(source_image.shape[:2]) < 1000:
+        quality_warnings.append(
+            "Image resolution is below the recommended 1000 pixels on the "
+            "short edge; fine whitening and surface defects may be missed."
+        )
     if features["sharpness"] < 0.08:
         quality_warnings.append("The image is blurry; use a tripod or brighter light.")
     if features["surface_glare"] > 0.08:

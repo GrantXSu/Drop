@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>CardLens — Pokémon Grade Estimate</title>
   <style>
     :root { --ink:#182033; --muted:#697086; --paper:#fffdf8; --line:#e5e1d8; --blue:#3157d5; --gold:#f5be39; --red:#d94c56; }
@@ -26,12 +26,17 @@
     .drop-copy strong { display:block; font-size:18px; }
     .drop-copy span { color:var(--muted); font-size:14px; }
     .tag { position:absolute; z-index:2; top:12px; left:12px; border-radius:999px; padding:6px 10px; background:#171c29de; color:white; font-size:12px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+    .photo-meta { display:none; position:absolute; z-index:2; right:12px; bottom:12px; padding:5px 8px; border-radius:8px; color:#fff; background:#1c664cde; font-size:11px; font-weight:750; }
+    .photo-meta.warning { background:#9a4b19e8; }
     .actions { display:flex; gap:14px; align-items:center; margin-top:18px; }
-    button { appearance:none; border:0; border-radius:12px; padding:14px 20px; background:var(--blue); color:#fff; font:inherit; font-weight:780; cursor:pointer; }
+    button { appearance:none; min-height:44px; border:0; border-radius:12px; padding:12px 20px; background:var(--blue); color:#fff; font:inherit; font-weight:780; cursor:pointer; }
     button:hover { filter:brightness(1.08); }
     button:disabled { opacity:.55; cursor:wait; }
     .hint { color:var(--muted); font-size:13px; }
     .error { display:none; margin-top:16px; padding:12px 14px; color:#7e1d26; background:#ffe9e9; border-radius:10px; }
+    .capture-guide { margin-bottom:16px; border:1px solid #d8dced; border-radius:12px; background:#f6f7fc; }
+    .capture-guide summary { padding:11px 13px; cursor:pointer; font-weight:800; }
+    .capture-guide ul { margin:0; padding:0 28px 13px 34px; color:var(--muted); font-size:14px; }
     .results { display:none; margin-top:22px; }
     .identity { display:none; align-items:center; gap:16px; margin-bottom:18px; padding:14px; border:1px solid var(--line); border-radius:14px; background:#f5f7ff; }
     .identity img { width:70px; height:98px; object-fit:contain; border-radius:6px; }
@@ -93,6 +98,8 @@
     .drag-guide.horizontal span { top:5px; left:6px; }
     .drag-guide[data-guide="right"] span { right:5px; left:auto; }
     .drag-guide[data-guide="bottom"] span { top:auto; bottom:5px; }
+    .drag-guide.vertical::before { content:""; position:absolute; inset:0 -12px; }
+    .drag-guide.horizontal::before { content:""; position:absolute; inset:-12px 0; }
     .guide-apply-actions { display:flex; justify-content:center; gap:8px; padding:10px; background:#f5f7ff; }
     .signals { display:grid; gap:9px; margin:16px 0; }
     .signal { padding:10px 12px; border-radius:10px; background:#f5f3ed; font-size:13px; }
@@ -104,7 +111,46 @@
     .legend .green { background:#60dc78; } .legend .red { background:#f04b41; }
     .legend .outer { background:#28d9ff; }
     .legend .cyan { background:#28d9ff; }
-    @media (max-width:720px) { .uploads,.result-grid,.evidence-grid { grid-template-columns:1fr; } .drop { min-height:280px; } .actions { align-items:stretch; flex-direction:column; } button { width:100%; } }
+    @media (max-width:720px) {
+      .uploads,.result-grid,.evidence-grid { grid-template-columns:1fr; }
+      .drop { min-height:250px; }
+      .actions { align-items:stretch; flex-direction:column; }
+      .actions button { width:100%; }
+      .identity { align-items:flex-start; }
+    }
+    @media (max-width:600px) {
+      body { font-size:15px; }
+      .shell { width:100%; padding:14px 8px calc(36px + env(safe-area-inset-bottom)); }
+      header { gap:8px; margin:0 4px 22px; }
+      .brand { font-size:21px; }
+      .status { max-width:52%; text-align:center; font-size:11px; }
+      .hero { margin:0 6px 20px; }
+      h1 { font-size:38px; letter-spacing:-.05em; }
+      .hero p { font-size:15px; }
+      .panel { padding:11px; border-radius:17px; }
+      .uploads { gap:10px; }
+      .drop { min-height:230px; border-radius:13px; }
+      .actions { position:sticky; bottom:calc(8px + env(safe-area-inset-bottom)); z-index:8; padding:8px; margin:10px -3px 0; border-radius:14px; background:#fffdf8e8; backdrop-filter:blur(10px); }
+      .hint { text-align:center; }
+      .result-grid { gap:16px; }
+      .grade-card { min-height:180px; padding:18px; }
+      .grade { font-size:68px; }
+      h2 { font-size:24px; }
+      .metric { grid-template-columns:88px 1fr 38px; gap:8px; }
+      .metric-copy small { font-size:11px; }
+      .evidence { margin-top:24px; padding-top:20px; }
+      .evidence-grid { gap:12px; }
+      .evidence-copy { padding:13px; }
+      .evidence-copy h3 { font-size:20px; }
+      .legend { flex-wrap:wrap; }
+      .identity { flex-direction:column; padding:11px; }
+      .identity img { width:58px; height:81px; }
+      .card-search-row { flex-direction:column; }
+      .card-search-result { grid-template-columns:38px 1fr; }
+      .card-search-result button { grid-column:1/-1; width:100%; }
+      .guide-editor,.guide-apply-actions { padding-left:9px; padding-right:9px; }
+      .guide-actions button,.guide-apply-actions button { width:100%; }
+    }
   </style>
 </head>
 <body>
@@ -118,15 +164,26 @@
       <p>Upload or photograph both sides in even light. CardLens returns a digital condition report with a decimal grade and centering, corner, edge, and surface subgrades.</p>
     </section>
     <section class="panel">
+      <details class="capture-guide">
+        <summary>Accuracy checklist before scanning</summary>
+        <ul>
+          <li>Use the original camera image at high resolution; avoid screenshots.</li>
+          <li>Remove sleeves and holders, use diffuse light, and turn off flash.</li>
+          <li>Keep all four corners visible against a contrasting plain surface.</li>
+          <li>Upload both front and back; use an angled-light photo to verify surface wear.</li>
+        </ul>
+      </details>
       <div class="uploads">
         <label class="drop" id="front-drop">
           <span class="tag">Front · required</span>
+          <span class="photo-meta"></span>
           <input id="front" name="front" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" required>
           <img alt="Front card preview">
           <span class="drop-copy"><strong>Photograph card front</strong><span>or choose an image</span></span>
         </label>
         <label class="drop" id="back-drop">
           <span class="tag">Back · recommended</span>
+          <span class="photo-meta"></span>
           <input id="back" name="back" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
           <img alt="Back card preview">
           <span class="drop-copy"><strong>Photograph card back</strong><span>improves the estimate</span></span>
@@ -176,8 +233,23 @@
         delete manualGuides[side];
         if (side === "front") selectedCardId = null;
         const image = container.querySelector("img");
-        if (!input.files[0]) { container.classList.remove("has-image"); return; }
-        image.src = URL.createObjectURL(input.files[0]);
+        const meta = container.querySelector(".photo-meta");
+        if (!input.files[0]) {
+          container.classList.remove("has-image");
+          meta.style.display = "none";
+          return;
+        }
+        const source = URL.createObjectURL(input.files[0]);
+        image.src = source;
+        const probe = new Image();
+        probe.onload = () => {
+          const shortest = Math.min(probe.naturalWidth, probe.naturalHeight);
+          const lowResolution = shortest < 1000;
+          meta.textContent = `${probe.naturalWidth} × ${probe.naturalHeight}${lowResolution ? " · low resolution" : " · ready"}`;
+          meta.classList.toggle("warning", lowResolution);
+          meta.style.display = "block";
+        };
+        probe.src = source;
         container.classList.add("has-image");
       });
     }
@@ -186,7 +258,7 @@
 
     fetch("/api/status").then(r => r.json()).then(status => {
       document.querySelector("#model-status").textContent = status.trained_model
-        ? "Trained model ready" : "Prototype mode · model not trained";
+        ? "Trained model ready" : "Heuristic mode · training required";
     }).catch(() => document.querySelector("#model-status").textContent = "Scanner offline");
 
     function escapeHtml(value) {
