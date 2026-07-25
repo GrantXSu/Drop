@@ -454,6 +454,30 @@ def test_validated_bgs_models_supply_corner_and_edge_subgrades(
     assert categories["edges"]["method"] == "trained BGS subgrade"
 
 
+def test_trained_overall_prediction_respects_centering_cap(tmp_path: Path) -> None:
+    vectors = np.zeros((2, len(FEATURE_NAMES)), dtype=np.float64)
+    overall = DummyRegressor(strategy="constant", constant=10.0).fit(
+        vectors, np.array([10.0, 10.0])
+    )
+    artifact = {
+        "feature_names": FEATURE_NAMES,
+        "models": {"psa_overall": overall},
+        "targets": {
+            "psa_overall": {"samples": 500, "validation_mae": 0.5},
+        },
+    }
+    model_path = tmp_path / "overall.joblib"
+    joblib.dump(artifact, model_path)
+    off_center = {name: 0.0 for name in BASE_FEATURES}
+    off_center.update({"centering_x": 0.5, "centering_y": 0.5})
+
+    centering = category_subgrades(off_center, off_center)[0]["score"]
+    prediction = predict_grade(off_center, off_center, model_path)
+
+    assert prediction.grade <= centering + 0.5
+    assert prediction.grade < 10.0
+
+
 def test_centering_uses_psa_and_beckett_thresholds() -> None:
     perfect = {name: 0.0 for name in BASE_FEATURES}
     perfect.update({"centering_x": 1.0, "centering_y": 1.0})
@@ -739,7 +763,7 @@ def test_grade_api_applies_manual_centering_guides(monkeypatch, tmp_path: Path) 
     assert centering["vertical"] == "50/50"
 
 
-def test_repeated_whitening_outweighs_centering_in_fallback_grade(
+def test_physical_damage_and_centering_both_cap_fallback_grade(
     tmp_path: Path,
 ) -> None:
     clean = {name: 0.0 for name in BASE_FEATURES}
@@ -755,9 +779,13 @@ def test_repeated_whitening_outweighs_centering_in_fallback_grade(
     centering_grade = predict_grade(
         poor_centering, poor_centering, tmp_path / "missing.joblib"
     ).grade
+    centering_subgrade = category_subgrades(
+        poor_centering, poor_centering
+    )[0]["score"]
 
     assert whitening_grade < 7.0
-    assert centering_grade > whitening_grade
+    assert centering_grade <= centering_subgrade + 0.5
+    assert centering_grade < 10.0
 
 
 def test_medium_whitening_findings_do_not_score_like_high_damage() -> None:

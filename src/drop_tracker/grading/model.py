@@ -69,6 +69,15 @@ def feature_vector(
     return np.asarray(values, dtype=np.float64)
 
 
+def _apply_centering_cap(
+    grade: float,
+    front: Dict[str, float],
+    back: Optional[Dict[str, float]],
+) -> float:
+    centering_score = float(centering_standards(front, back)["psa"])
+    return min(grade, centering_score + 0.5)
+
+
 def _heuristic_grade(
     front: Dict[str, float], back: Optional[Dict[str, float]]
 ) -> GradePrediction:
@@ -87,6 +96,7 @@ def _heuristic_grade(
         by_name[name] for name in ("corners", "edges", "surface") if name in by_name
     ]
     grade = min(grade, min(physical_scores) + 1.5)
+    grade = _apply_centering_cap(grade, front, back)
     grade = float(np.clip(grade, 1.0, 10.0))
     uncertainty = 1.75 if back is None else 1.25
     return GradePrediction(
@@ -135,6 +145,7 @@ def predict_grade(
         return _heuristic_grade(front, back)
     vector = feature_vector(front, back).reshape(1, -1)
     grade = float(np.clip(model.predict(vector)[0], 1.0, 10.0))
+    grade = _apply_centering_cap(grade, front, back)
     validation_mae = float(target_metrics.get("validation_mae", 1.5))
     sample_count = int(target_metrics.get("samples", artifact.get("sample_count", 0)))
     uncertainty = max(0.6, min(2.5, validation_mae * 1.65))
@@ -366,7 +377,9 @@ def category_subgrades(
             "condition": f"PSA {standards['psa']:.1f} · BGS {standards['bgs']:.1f}",
             "detail": (
                 f"Front larger-border shares: {standards['front_axes']}. "
-                f"Back: {standards['back_axes'] or 'not supplied'}."
+                f"Back: {standards['back_axes'] or 'not supplied'}. "
+                "The overall estimate cannot exceed this PSA-style centering "
+                "subgrade by more than 0.5."
             ),
             "standards": standards,
         },

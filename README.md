@@ -311,8 +311,9 @@ both sides affect the score, and merely landing on PSA's maximum tolerance
 does not guarantee 10.0. Repeated confirmed whitening regions increase edge
 and corner penalties, but medium findings count one-quarter as much as high
 findings so numerous tiny marks do not score like severe damage. Centering
-contributes 10% of the heuristic weighting and does not impose the severe
-physical-damage cap.
+contributes 10% of the heuristic weighting and has a separate ceiling: the
+overall estimate cannot exceed the PSA-style centering subgrade by more than
+0.5. This ceiling applies to heuristic and trained overall predictions.
 
 ## Run continuously on Render
 
