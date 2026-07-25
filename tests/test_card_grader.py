@@ -613,6 +613,10 @@ def test_ui_collapses_detected_findings() -> None:
     assert "Accuracy checklist before scanning" in response.text
     assert "viewport-fit=cover" in response.text
     assert "Prototype" not in response.text
+    assert 'id="camera-mode"' in response.text
+    assert 'id="camera-video"' in response.text
+    assert "Capture front" in response.text
+    assert "Analyze captured card" in response.text
 
 
 def test_grade_api_applies_manual_centering_guides(monkeypatch, tmp_path: Path) -> None:

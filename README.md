@@ -133,6 +133,11 @@ plain, contrasting background. Use diffuse light, keep all four corners
 visible, and include both sides. The first run uses a clearly labeled,
 low-confidence visual heuristic.
 
+Choose **Use camera** for a live rear-camera preview with a card framing guide.
+Capture the front and back, then choose **Analyze captured card** without saving
+or selecting upload files. Browser camera access requires HTTPS or localhost;
+the normal photo picker remains available when live camera access is blocked.
+
 If an automatic centering guide follows text or a content bar, choose
 **Enable line adjustment** in the inspection report. Drag the four green lines
 directly on the normalized card image, then choose **Apply and recalculate**.
