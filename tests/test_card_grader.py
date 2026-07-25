@@ -11,7 +11,9 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 from sklearn.dummy import DummyRegressor
 
+from drop_tracker.grading.billing import consume_scan, set_subscription, usage_status
 import drop_tracker.grading.catalog as catalog_module
+import drop_tracker.grading.web as web_module
 from drop_tracker.grading.catalog import (
     _connect,
     _reference_profile,
@@ -563,6 +565,7 @@ def test_catalog_reference_grades_visible_surface_scratch() -> None:
 
 def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("CARD_GRADER_MODEL", str(tmp_path / "missing.joblib"))
+    monkeypatch.setenv("CARDLENS_BILLING_DB", str(tmp_path / "billing.sqlite"))
     client = TestClient(app)
 
     response = client.post(
@@ -585,6 +588,7 @@ def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
     )
     assert payload["categories"][-1]["condition"] == "Not assessed"
     assert payload["prediction"]["label"]
+    assert payload["billing"]["remaining_today"] == 2
     assert "Add a back photo" in payload["warnings"][-1]
     assert payload["visual_reports"][0]["side"] == "Front"
     assert payload["visual_reports"][0]["image"].startswith("data:image/jpeg;base64,")
@@ -617,10 +621,14 @@ def test_ui_collapses_detected_findings() -> None:
     assert 'id="camera-video"' in response.text
     assert "Capture front" in response.text
     assert "Analyze captured card" in response.text
+    assert "3 card analyses per UTC day" in response.text
+    assert "$9.99" in response.text
+    assert "$59.99" in response.text
 
 
 def test_grade_api_applies_manual_centering_guides(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("CARD_GRADER_MODEL", str(tmp_path / "missing.joblib"))
+    monkeypatch.setenv("CARDLENS_BILLING_DB", str(tmp_path / "billing.sqlite"))
     response = TestClient(app).post(
         "/api/grade",
         files={"front": ("front.jpg", card_image_bytes(), "image/jpeg")},
@@ -697,6 +705,7 @@ def test_manual_catalog_search_and_confirmation(monkeypatch, tmp_path: Path) -> 
     connection.close()
     monkeypatch.setenv("CARD_CATALOG", str(database))
     monkeypatch.setenv("CARD_GRADER_MODEL", str(tmp_path / "missing.joblib"))
+    monkeypatch.setenv("CARDLENS_BILLING_DB", str(tmp_path / "billing.sqlite"))
     client = TestClient(app)
 
     search = client.get("/api/cards", params={"q": "Pikachu 065"})
@@ -712,3 +721,73 @@ def test_manual_catalog_search_and_confirmation(monkeypatch, tmp_path: Path) -> 
     match = grade.json()["identification"]["match"]
     assert match["id"] == "swsh1-65"
     assert match["match_method"] == "manual"
+
+
+def test_free_quota_counts_unique_cards_and_pro_is_unlimited(tmp_path: Path) -> None:
+    database = tmp_path / "billing.sqlite"
+    device = "test-device"
+
+    assert usage_status(device, database)["remaining_today"] == 3
+    assert consume_scan(device, "card-1", database)["remaining_today"] == 2
+    assert consume_scan(device, "card-1", database)["remaining_today"] == 2
+    assert consume_scan(device, "card-2", database)["remaining_today"] == 1
+    assert consume_scan(device, "card-3", database)["remaining_today"] == 0
+    assert not usage_status(device, database)["can_scan"]
+
+    set_subscription(device_id=device, status="active", path=database)
+    status = usage_status(device, database)
+    assert status["is_pro"]
+    assert status["daily_limit"] is None
+    assert status["can_scan"]
+
+
+def test_grade_api_enforces_three_unique_cards_per_day(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("CARD_GRADER_MODEL", str(tmp_path / "missing.joblib"))
+    monkeypatch.setenv("CARDLENS_BILLING_DB", str(tmp_path / "billing.sqlite"))
+    client = TestClient(app)
+
+    for index in range(3):
+        response = client.post(
+            "/api/grade",
+            files={"front": ("front.jpg", card_image_bytes(), "image/jpeg")},
+            data={"scan_id": f"card-{index}"},
+        )
+        assert response.status_code == 200
+
+    blocked = client.post(
+        "/api/grade",
+        files={"front": ("front.jpg", card_image_bytes(), "image/jpeg")},
+        data={"scan_id": "card-4"},
+    )
+    assert blocked.status_code == 402
+    assert "3 card analyses" in blocked.json()["detail"]
+
+
+def test_pro_checkout_uses_configured_stripe_price(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("CARDLENS_BILLING_DB", str(tmp_path / "billing.sqlite"))
+    monkeypatch.setenv("CARDLENS_COOKIE_SECRET", "test-cookie-secret")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_example")
+    monkeypatch.setenv("STRIPE_PRO_MONTHLY_PRICE_ID", "price_monthly")
+    monkeypatch.setenv("STRIPE_PRO_ANNUAL_PRICE_ID", "price_annual")
+    captured = {}
+
+    class CheckoutSession:
+        url = "https://checkout.stripe.test/session"
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        return CheckoutSession()
+
+    monkeypatch.setattr(web_module.stripe.checkout.Session, "create", fake_create)
+    client = TestClient(app)
+    client.get("/api/status")
+
+    response = client.post("/api/billing/checkout", json={"plan": "annual"})
+
+    assert response.status_code == 200
+    assert response.json()["url"] == CheckoutSession.url
+    assert captured["mode"] == "subscription"
+    assert captured["line_items"] == [{"price": "price_annual", "quantity": 1}]
+    assert captured["metadata"]["plan"] == "annual"

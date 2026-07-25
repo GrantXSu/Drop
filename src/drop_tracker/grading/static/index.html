@@ -9,10 +9,12 @@
     * { box-sizing:border-box; }
     body { margin:0; color:var(--ink); background:radial-gradient(circle at top left,#e8edff 0,transparent 32%),#f4f1ea; font:16px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif; }
     .shell { width:min(1080px,calc(100% - 32px)); margin:0 auto; padding:28px 0 64px; }
-    header { display:flex; align-items:center; justify-content:space-between; margin-bottom:36px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:36px; }
+    .header-statuses { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
     .brand { font-weight:850; letter-spacing:-.04em; font-size:24px; }
     .brand span { color:var(--blue); }
     .status { font-size:13px; color:var(--muted); padding:7px 11px; border:1px solid var(--line); border-radius:999px; background:#ffffffa8; }
+    .plan-status { min-height:0; padding:7px 11px; border:1px solid #b9c4ef; border-radius:999px; color:#2442a1; background:#eef1ff; font-size:12px; }
     .hero { max-width:720px; margin-bottom:28px; }
     h1 { margin:0 0 12px; font-size:clamp(38px,7vw,72px); line-height:.98; letter-spacing:-.065em; }
     .hero p { max-width:630px; color:var(--muted); font-size:18px; }
@@ -114,6 +116,20 @@
     .camera-controls { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:12px; }
     .camera-controls .camera-analyze { grid-column:1/-1; }
     .camera-status { grid-column:1/-1; min-height:22px; margin:0; color:var(--muted); text-align:center; font-size:13px; }
+    .pricing-modal { position:fixed; z-index:60; inset:0; display:grid; place-items:center; padding:16px; background:#060913d9; }
+    .pricing-modal[hidden] { display:none; }
+    .pricing-sheet { width:min(760px,100%); max-height:95vh; overflow:auto; padding:20px; border-radius:20px; background:var(--paper); }
+    .pricing-header { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+    .pricing-header h2 { margin:0; }
+    .pricing-header button { width:auto; color:var(--ink); background:#e4e7f1; }
+    .pricing-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:16px; }
+    .price-card { display:flex; flex-direction:column; gap:10px; padding:18px; border:1px solid var(--line); border-radius:15px; background:#fff; }
+    .price-card.pro { border:2px solid var(--blue); background:#f5f7ff; }
+    .price-card h3,.price-card p { margin:0; }
+    .price { font-size:32px; font-weight:900; letter-spacing:-.04em; }
+    .price-card ul { flex:1; margin:0; padding-left:19px; color:var(--muted); }
+    .annual-offer { margin-top:8px; padding-top:10px; border-top:1px solid #d9def2; }
+    .billing-note { color:var(--muted); font-size:12px; margin-bottom:0; }
     .signals { display:grid; gap:9px; margin:16px 0; }
     .signal { padding:10px 12px; border-radius:10px; background:#f5f3ed; font-size:13px; }
     .signal b { display:block; margin-bottom:3px; }
@@ -137,6 +153,9 @@
       header { gap:8px; margin:0 4px 22px; }
       .brand { font-size:21px; }
       .status { max-width:52%; text-align:center; font-size:11px; }
+      .header-statuses { flex-direction:column; align-items:flex-end; gap:4px; }
+      .status { max-width:100%; }
+      .plan-status { width:auto; min-height:0; }
       .hero { margin:0 6px 20px; }
       h1 { font-size:38px; letter-spacing:-.05em; }
       .hero p { font-size:15px; }
@@ -167,6 +186,9 @@
       .camera-sheet { width:100%; height:100%; border-radius:0; }
       .camera-view { max-height:70vh; }
       .camera-controls { position:sticky; bottom:0; background:var(--paper); }
+      .pricing-modal { padding:0; }
+      .pricing-sheet { width:100%; height:100%; max-height:none; border-radius:0; padding:14px; }
+      .pricing-grid { grid-template-columns:1fr; }
     }
   </style>
 </head>
@@ -174,7 +196,10 @@
   <main class="shell">
     <header>
       <div class="brand">Card<span>Lens</span></div>
-      <div class="status" id="model-status">Checking model…</div>
+      <div class="header-statuses">
+        <div class="status" id="model-status">Checking model…</div>
+        <button class="plan-status" id="plan-status" type="button">Checking plan…</button>
+      </div>
     </header>
     <section class="hero">
       <h1>See the card.<br>Estimate the grade.</h1>
@@ -256,6 +281,43 @@
       <canvas id="camera-canvas" hidden></canvas>
     </div>
   </section>
+  <section class="pricing-modal" id="pricing-modal" role="dialog" aria-modal="true" aria-label="CardLens pricing" hidden>
+    <div class="pricing-sheet">
+      <div class="pricing-header">
+        <div><h2>CardLens plans</h2><span id="pricing-usage"></span></div>
+        <button id="close-pricing" type="button">Close</button>
+      </div>
+      <div class="pricing-grid">
+        <article class="price-card">
+          <h3>Free</h3>
+          <div class="price">$0</div>
+          <p>Try CardLens with no payment details.</p>
+          <ul>
+            <li>3 card analyses per UTC day</li>
+            <li>Full visual report and subgrades</li>
+            <li>Camera and manual guide controls</li>
+          </ul>
+        </article>
+        <article class="price-card pro">
+          <h3>CardLens Pro</h3>
+          <div class="price">$9.99 <small>/ month</small></div>
+          <p>Unlimited analysis for active collectors.</p>
+          <ul>
+            <li>Unlimited card analyses</li>
+            <li>All Free features</li>
+            <li>Cancel any time through Stripe</li>
+          </ul>
+          <button class="checkout-button" data-plan="monthly" type="button">Upgrade monthly</button>
+          <div class="annual-offer">
+            <b>$59.99 / year</b> · save 50%
+            <button class="checkout-button" data-plan="annual" type="button">Upgrade annually</button>
+          </div>
+          <button id="manage-billing" class="secondary-button" type="button" hidden>Manage subscription</button>
+        </article>
+      </div>
+      <p class="billing-note" id="billing-note">Payments are securely processed by Stripe. AI estimates are not official PSA/BGS grades.</p>
+    </div>
+  </section>
   <script>
     const front = document.querySelector("#front");
     const back = document.querySelector("#back");
@@ -265,18 +327,31 @@
     const cameraVideo = document.querySelector("#camera-video");
     const cameraCanvas = document.querySelector("#camera-canvas");
     const cameraStatus = document.querySelector("#camera-status");
+    const pricingModal = document.querySelector("#pricing-modal");
+    const planStatus = document.querySelector("#plan-status");
     const errorBox = document.querySelector("#error");
     const results = document.querySelector("#results");
     const manualGuides = {};
     const capturedFiles = { front:null, back:null };
     let selectedCardId = null;
     let cameraStream = null;
+    let currentScanId = null;
+    let billingStatus = null;
+
+    function newScanId() {
+      return crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
 
     function preview(input, container, side) {
       input.addEventListener("change", () => {
         capturedFiles[side] = null;
         delete manualGuides[side];
-        if (side === "front") selectedCardId = null;
+        if (side === "front") {
+          selectedCardId = null;
+          currentScanId = newScanId();
+        }
         const image = container.querySelector("img");
         const meta = container.querySelector(".photo-meta");
         if (!input.files[0]) {
@@ -305,6 +380,7 @@
       capturedFiles[side] = file;
       delete manualGuides[side];
       if (side === "front") selectedCardId = null;
+      if (side === "front") currentScanId = newScanId();
       const container = document.querySelector(`#${side}-drop`);
       container.querySelector("img").src = source;
       container.classList.add("has-image");
@@ -391,10 +467,62 @@
       scan.click();
     });
 
+    function updateBilling(billing) {
+      billingStatus = billing;
+      if (!billing) return;
+      planStatus.textContent = billing.is_pro
+        ? "Pro · unlimited"
+        : `Free · ${billing.remaining_today}/${billing.daily_limit} left today`;
+      document.querySelector("#pricing-usage").textContent = billing.is_pro
+        ? "Your Pro subscription includes unlimited analyses."
+        : `${billing.used_today} of ${billing.daily_limit} free analyses used today.`;
+      document.querySelectorAll(".checkout-button").forEach(button => {
+        button.disabled = billing.is_pro || !billing.billing_configured;
+      });
+      document.querySelector("#manage-billing").hidden = !billing.is_pro;
+      if (!billing.billing_configured) {
+        document.querySelector("#billing-note").textContent =
+          "Payments are not configured yet. Add Stripe keys to enable Pro checkout.";
+      }
+    }
+
     fetch("/api/status").then(r => r.json()).then(status => {
       document.querySelector("#model-status").textContent = status.trained_model
         ? "Trained model ready" : "Heuristic mode · training required";
+      updateBilling(status.billing);
     }).catch(() => document.querySelector("#model-status").textContent = "Scanner offline");
+
+    planStatus.addEventListener("click", () => { pricingModal.hidden = false; });
+    document.querySelector("#close-pricing").addEventListener(
+      "click", () => { pricingModal.hidden = true; }
+    );
+    pricingModal.addEventListener("click", event => {
+      if (event.target === pricingModal) pricingModal.hidden = true;
+    });
+    document.querySelectorAll(".checkout-button").forEach(button => {
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          const response = await fetch("/api/billing/checkout", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body:JSON.stringify({ plan:button.dataset.plan }),
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || "Checkout could not start.");
+          window.location.assign(payload.url);
+        } catch (error) {
+          document.querySelector("#billing-note").textContent = error.message;
+          button.disabled = false;
+        }
+      });
+    });
+    document.querySelector("#manage-billing").addEventListener("click", async () => {
+      const response = await fetch("/api/billing/portal", { method:"POST" });
+      const payload = await response.json();
+      if (response.ok) window.location.assign(payload.url);
+      else document.querySelector("#billing-note").textContent = payload.detail;
+    });
 
     function escapeHtml(value) {
       const element = document.createElement("div");
@@ -458,6 +586,8 @@
       const form = new FormData();
       form.append("front", frontFile);
       if (backFile) form.append("back", backFile);
+      if (!currentScanId) currentScanId = newScanId();
+      form.append("scan_id", currentScanId);
       if (selectedCardId) form.append("card_id", selectedCardId);
       Object.entries(manualGuides).forEach(([side, guides]) => {
         Object.entries(guides).forEach(([name, value]) => {
@@ -469,7 +599,11 @@
       try {
         const response = await fetch("/api/grade", { method:"POST", body:form });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "The card could not be analyzed.");
+        if (!response.ok) {
+          if (response.status === 402) pricingModal.hidden = false;
+          throw new Error(data.detail || "The card could not be analyzed.");
+        }
+        updateBilling(data.billing);
         const prediction = data.prediction;
         const identity = document.querySelector("#identity");
         if (data.identification && data.identification.match) {

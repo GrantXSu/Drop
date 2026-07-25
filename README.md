@@ -165,6 +165,37 @@ that app like any other Mac application; no terminal needs to remain open.
 CardLens still runs locally at <http://127.0.0.1:8000> and does not upload card
 photos to a hosted service.
 
+### Free and Pro plans
+
+CardLens Free includes three unique card analyses per UTC day. Recalculating
+manual guides or confirming a catalog match for the same captured card does not
+consume another analysis. CardLens Pro is **$9.99/month** or **$59.99/year** and
+includes unlimited analyses.
+
+Payments use Stripe-hosted Checkout and Stripe's customer portal. Create one
+monthly recurring price and one annual recurring price in Stripe, then set:
+
+```sh
+CARDLENS_COOKIE_SECRET="a-long-random-production-secret"
+STRIPE_SECRET_KEY="sk_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+STRIPE_PRO_MONTHLY_PRICE_ID="price_..."
+STRIPE_PRO_ANNUAL_PRICE_ID="price_..."
+```
+
+Configure the webhook URL as
+`https://your-host/api/billing/webhook` for checkout-session and subscription
+created/updated/deleted events. For local testing, Stripe CLI can forward
+events:
+
+```sh
+stripe listen --forward-to localhost:8000/api/billing/webhook
+```
+
+The included entitlement is tied to a signed browser/device cookie. Before a
+commercial public launch, add user accounts and a hosted transactional database
+so paid access works across devices and cannot be reset by clearing cookies.
+
 ### Sync the card identification catalog
 
 CardLens can identify cards from every English series exposed by the

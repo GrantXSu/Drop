@@ -8,13 +8,24 @@ import os
 import threading
 import webbrowser
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import cv2
+import stripe
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
+from .billing import (
+    COOKIE_NAME,
+    consume_scan,
+    customer_for_device,
+    device_token,
+    resolve_device,
+    set_subscription,
+    usage_status,
+)
 from .catalog import (
     DEFAULT_CATALOG_PATH,
     apply_reference_baseline,
@@ -36,6 +47,27 @@ from .model import DEFAULT_MODEL_PATH, defect_summary, grade_label, predict_grad
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 STATIC_DIRECTORY = Path(__file__).with_name("static")
 app = FastAPI(title="Pokémon Card Grade Scanner", version="0.1.0")
+
+
+class CheckoutRequest(BaseModel):
+    plan: Literal["monthly", "annual"]
+
+
+@app.middleware("http")
+async def ensure_device_cookie(request: Request, call_next):
+    device_id, token = resolve_device(request.cookies.get(COOKIE_NAME))
+    request.state.device_id = device_id
+    response = await call_next(request)
+    if request.cookies.get(COOKIE_NAME) != token:
+        response.set_cookie(
+            COOKIE_NAME,
+            device_token(device_id),
+            max_age=60 * 60 * 24 * 365,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="lax",
+        )
+    return response
 
 
 def _visual_report(side: str, analysis: CardAnalysis) -> dict:
@@ -99,13 +131,96 @@ def index() -> FileResponse:
 
 
 @app.get("/api/status")
-def status() -> dict:
+def status(request: Request) -> dict:
     model_path = Path(os.getenv("CARD_GRADER_MODEL", str(DEFAULT_MODEL_PATH)))
     return {
         "ready": True,
         "trained_model": model_path.exists(),
         "model_path": str(model_path),
+        "billing": usage_status(request.state.device_id),
     }
+
+
+@app.post("/api/billing/checkout")
+def create_checkout(payload: CheckoutRequest, request: Request) -> dict:
+    secret_key = os.getenv("STRIPE_SECRET_KEY")
+    price_id = os.getenv(
+        "STRIPE_PRO_MONTHLY_PRICE_ID"
+        if payload.plan == "monthly"
+        else "STRIPE_PRO_ANNUAL_PRICE_ID"
+    )
+    if not secret_key or not price_id or not os.getenv("CARDLENS_COOKIE_SECRET"):
+        raise HTTPException(
+            status_code=503,
+            detail="Payments are not configured. Add the Stripe price and secret keys.",
+        )
+    stripe.api_key = secret_key
+    base_url = str(request.base_url).rstrip("/")
+    session = stripe.checkout.Session.create(
+        mode="subscription",
+        line_items=[{"price": price_id, "quantity": 1}],
+        client_reference_id=request.state.device_id,
+        metadata={"device_id": request.state.device_id, "plan": payload.plan},
+        success_url=f"{base_url}/?checkout=success",
+        cancel_url=f"{base_url}/?checkout=cancelled",
+        allow_promotion_codes=True,
+    )
+    return {"url": session.url}
+
+
+@app.post("/api/billing/portal")
+def create_billing_portal(request: Request) -> dict:
+    secret_key = os.getenv("STRIPE_SECRET_KEY")
+    customer_id = customer_for_device(request.state.device_id)
+    if not secret_key or not customer_id:
+        raise HTTPException(status_code=404, detail="No Pro subscription was found.")
+    stripe.api_key = secret_key
+    session = stripe.billing_portal.Session.create(
+        customer=customer_id,
+        return_url=str(request.base_url),
+    )
+    return {"url": session.url}
+
+
+@app.post("/api/billing/webhook")
+async def stripe_webhook(request: Request) -> dict:
+    secret_key = os.getenv("STRIPE_SECRET_KEY")
+    webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+    if not secret_key or not webhook_secret:
+        raise HTTPException(status_code=503, detail="Stripe webhook is not configured.")
+    stripe.api_key = secret_key
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, signature, webhook_secret)
+    except (ValueError, stripe.error.SignatureVerificationError) as error:
+        raise HTTPException(status_code=400, detail="Invalid Stripe webhook.") from error
+    event_type = event["type"]
+    item = event["data"]["object"]
+    if event_type == "checkout.session.completed":
+        metadata = item.get("metadata") or {}
+        checkout_status = (
+            "active"
+            if item.get("payment_status") in {"paid", "no_payment_required"}
+            else "incomplete"
+        )
+        set_subscription(
+            device_id=metadata.get("device_id") or item.get("client_reference_id"),
+            customer_id=item.get("customer"),
+            subscription_id=item.get("subscription"),
+            status=checkout_status,
+        )
+    elif event_type in {
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    }:
+        set_subscription(
+            customer_id=item.get("customer"),
+            subscription_id=item.get("id"),
+            status=item.get("status") or "inactive",
+        )
+    return {"received": True}
 
 
 @app.get("/api/cards")
@@ -116,8 +231,10 @@ def card_search(q: str) -> dict:
 
 @app.post("/api/grade")
 async def grade_card(
+    request: Request,
     front: UploadFile = File(...),
     back: Optional[UploadFile] = File(default=None),
+    scan_id: Optional[str] = Form(default=None),
     card_id: Optional[str] = Form(default=None),
     front_left_mm: Optional[float] = Form(default=None),
     front_right_mm: Optional[float] = Form(default=None),
@@ -128,6 +245,15 @@ async def grade_card(
     back_top_mm: Optional[float] = Form(default=None),
     back_bottom_mm: Optional[float] = Form(default=None),
 ) -> dict:
+    billing_before = usage_status(request.state.device_id)
+    if not billing_before["can_scan"]:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                "Free plan limit reached: 3 card analyses per UTC day. "
+                "Upgrade to CardLens Pro for unlimited analyses."
+            ),
+        )
     try:
         front_analysis = analyze_image(await _read_upload(front), side="front")
         back_analysis = (
@@ -211,6 +337,7 @@ async def grade_card(
     if back_analysis:
         visual_reports.append(_visual_report("Back", back_analysis))
 
+    billing_after = consume_scan(request.state.device_id, scan_id=scan_id)
     return {
         "prediction": prediction_payload,
         "categories": defect_summary(
@@ -225,6 +352,7 @@ async def grade_card(
             "candidates": matches,
             "catalog_ready": catalog_path.exists(),
         },
+        "billing": billing_after,
     }
 
 
