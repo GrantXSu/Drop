@@ -432,6 +432,7 @@ def identify_card(
                     f"{row['image_url']}/high.webp" if row["image_url"] else None
                 ),
                 "confidence": round(confidence, 3),
+                "match_method": "visual",
                 "hash_distance": hamming,
                 "color_distance": round(color_distance, 3),
                 "keypoint_similarity": round(keypoint_similarity, 3),
@@ -439,6 +440,89 @@ def identify_card(
             }
         )
     return results
+
+
+def search_cards(
+    query: str,
+    path: Path = DEFAULT_CATALOG_PATH,
+    limit: int = 20,
+) -> List[Dict[str, object]]:
+    """Search English catalog metadata by name, number, set, or card id."""
+    tokens = [token.strip() for token in query.split() if token.strip()]
+    if not path.exists() or not tokens:
+        return []
+    clauses = []
+    parameters: List[object] = []
+    for token in tokens:
+        clauses.append(
+            "(name LIKE ? OR local_id LIKE ? OR set_name LIKE ? OR id LIKE ?)"
+        )
+        value = f"%{token}%"
+        parameters.extend((value, value, value, value))
+    connection = _connect(path)
+    rows = connection.execute(
+        f"""
+        SELECT id, series_id, set_id, set_name, local_id, name, image_url
+        FROM cards
+        WHERE {" AND ".join(clauses)}
+        ORDER BY
+            CASE WHEN lower(name) = lower(?) THEN 0 ELSE 1 END,
+            name, set_name, local_id
+        LIMIT ?
+        """,
+        (*parameters, query.strip(), max(1, min(limit, 50))),
+    ).fetchall()
+    connection.close()
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "series_id": row["series_id"],
+            "set_id": row["set_id"],
+            "set_name": row["set_name"],
+            "number": row["local_id"],
+            "image_url": (
+                f"{row['image_url']}/high.webp" if row["image_url"] else None
+            ),
+        }
+        for row in rows
+    ]
+
+
+def get_card(
+    card_id: str, path: Path = DEFAULT_CATALOG_PATH
+) -> Optional[Dict[str, object]]:
+    """Return one catalog card with its clean-reference profile."""
+    if not path.exists():
+        return None
+    connection = _connect(path)
+    row = connection.execute(
+        """
+        SELECT id, series_id, set_id, set_name, local_id, name, image_url,
+               reference_features
+        FROM cards WHERE id = ?
+        """,
+        (card_id,),
+    ).fetchone()
+    connection.close()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "series_id": row["series_id"],
+        "set_id": row["set_id"],
+        "set_name": row["set_name"],
+        "number": row["local_id"],
+        "image_url": f"{row['image_url']}/high.webp" if row["image_url"] else None,
+        "confidence": 1.0,
+        "match_method": "manual",
+        "reference_features": (
+            json.loads(row["reference_features"])
+            if row["reference_features"]
+            else None
+        ),
+    }
 
 
 def apply_reference_baseline(

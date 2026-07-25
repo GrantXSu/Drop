@@ -181,6 +181,10 @@ illustrated printings. For confident matches, the clean reference layout
 calibrates expected print placement and checks for localized surface anomalies
 without moving the detected border guides.
 
+When visual matching is not confident, the report provides a catalog search.
+Enter a name, number, set, or combination such as `Pikachu 065`, then choose
+**This is my card** to rerun the report with that exact reference.
+
 ### Train it with verified samples
 
 Copy `examples/grading_manifest.csv` and add one row per graded card:
@@ -226,7 +230,9 @@ lower grades. The app reports a decimal PSA-style estimate and a separate
 Beckett-style centering reference; neither is an official grade. The decimal
 estimate is intentionally conservative: a back image is required for 10.0,
 both sides affect the score, and merely landing on PSA's maximum tolerance
-does not guarantee 10.0.
+does not guarantee 10.0. Repeated confirmed whitening regions increase edge
+and corner penalties even when each chip is small. Centering contributes 10%
+of the heuristic weighting and does not impose the severe physical-damage cap.
 
 ## Run continuously on Render
 

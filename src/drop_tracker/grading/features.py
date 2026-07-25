@@ -576,6 +576,8 @@ def _region_stats(
         "edge_pale": float(np.mean(list(edge_pale.values()))),
         "corner_pale_mean": float(np.mean(corner_pale)),
         "corner_pale_max": float(np.max(corner_pale)),
+        "edge_defect_load": 0.0,
+        "corner_defect_load": 0.0,
         "surface_glare": float(glare.mean()),
         "surface_dark": float(dark.mean()),
         "surface_damage": 0.0,
@@ -592,6 +594,8 @@ def _region_stats(
         "bottom-left": 0.0,
         "bottom-right": 0.0,
     }
+    edge_defect_count = 0
+    corner_defect_count = 0
     edge_baseline = float(np.median(list(edge_pale.values())))
     if side == "back":
         corner_radius = max(18, round(min(height, width) * 0.055))
@@ -687,6 +691,7 @@ def _region_stats(
             )[1]
             edge_length = width if nearest_edge in {"top edge", "bottom edge"} else height
             confirmed_edge_signals[nearest_edge] += area / max(1, strip * edge_length)
+            edge_defect_count += 1
             horizontal_corner = "left" if center_x < width / 2 else "right"
             vertical_corner = "top" if center_y < height / 2 else "bottom"
             if min(center_x, width - center_x) < corner_radius and min(
@@ -696,6 +701,7 @@ def _region_stats(
                 confirmed_corner_signals[corner_name] += area / max(
                     1, strip * corner_radius
                 )
+                corner_defect_count += 1
             padding = 5
             defects.append(
                 {
@@ -726,6 +732,7 @@ def _region_stats(
         )
         if amount > threshold:
             confirmed_edge_signals[name] = amount
+            edge_defect_count += 1
             defects.append(
                 {
                     "type": "Edge whitening signal",
@@ -743,6 +750,12 @@ def _region_stats(
         np.clip(np.mean(confirmed_corners), 0.0, 1.0)
     )
     features["corner_pale_max"] = float(np.clip(max(confirmed_corners), 0.0, 1.0))
+    features["edge_defect_load"] = float(
+        np.clip(edge_defect_count / 12.0, 0.0, 1.0)
+    )
+    features["corner_defect_load"] = float(
+        np.clip(corner_defect_count / 4.0, 0.0, 1.0)
+    )
 
     diagnostics = {
         "centering": centering,
@@ -755,6 +768,10 @@ def _region_stats(
             "edges": {
                 name: round(amount * 100, 1)
                 for name, amount in confirmed_edge_signals.items()
+            },
+            "defect_counts": {
+                "edges": edge_defect_count,
+                "corners": corner_defect_count,
             },
             "surface": {
                 "glare_percent": round(float(glare.mean()) * 100, 1),

@@ -18,7 +18,9 @@ from fastapi.responses import FileResponse
 from .catalog import (
     DEFAULT_CATALOG_PATH,
     apply_reference_baseline,
+    get_card,
     identify_card,
+    search_cards,
 )
 from .features import (
     CardAnalysis,
@@ -106,10 +108,17 @@ def status() -> dict:
     }
 
 
+@app.get("/api/cards")
+def card_search(q: str) -> dict:
+    catalog_path = Path(os.getenv("CARD_CATALOG", str(DEFAULT_CATALOG_PATH)))
+    return {"results": search_cards(q, catalog_path), "catalog_ready": catalog_path.exists()}
+
+
 @app.post("/api/grade")
 async def grade_card(
     front: UploadFile = File(...),
     back: Optional[UploadFile] = File(default=None),
+    card_id: Optional[str] = Form(default=None),
     front_left_mm: Optional[float] = Form(default=None),
     front_right_mm: Optional[float] = Form(default=None),
     front_top_mm: Optional[float] = Form(default=None),
@@ -128,9 +137,16 @@ async def grade_card(
             os.getenv("CARD_CATALOG", str(DEFAULT_CATALOG_PATH))
         )
         matches = identify_card(front_analysis.image, catalog_path)
-        identified_card = (
-            matches[0] if matches and float(matches[0]["confidence"]) >= 0.55 else None
-        )
+        if card_id:
+            identified_card = get_card(card_id, catalog_path)
+            if identified_card is None:
+                raise CardImageError("The selected catalog card no longer exists.")
+        else:
+            identified_card = (
+                matches[0]
+                if matches and float(matches[0]["confidence"]) >= 0.55
+                else None
+            )
         if identified_card:
             apply_reference_baseline(front_analysis, identified_card)
         manual_front = {

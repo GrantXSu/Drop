@@ -521,6 +521,7 @@ def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
         "corners",
         "edges",
         "surface",
+        "defect_counts",
     }
 
 
@@ -559,3 +560,72 @@ def test_grade_api_applies_manual_centering_guides(monkeypatch, tmp_path: Path) 
     }
     assert centering["horizontal"] == "33/67"
     assert centering["vertical"] == "50/50"
+
+
+def test_repeated_whitening_outweighs_centering_in_fallback_grade(
+    tmp_path: Path,
+) -> None:
+    clean = {name: 0.0 for name in BASE_FEATURES}
+    clean.update({"centering_x": 1.0, "centering_y": 1.0})
+    whitened = dict(clean)
+    whitened.update({"edge_pale": 0.03, "edge_defect_load": 1.0})
+    poor_centering = dict(clean)
+    poor_centering.update({"centering_x": 0.25, "centering_y": 0.25})
+
+    whitening_grade = predict_grade(
+        whitened, whitened, tmp_path / "missing.joblib"
+    ).grade
+    centering_grade = predict_grade(
+        poor_centering, poor_centering, tmp_path / "missing.joblib"
+    ).grade
+
+    assert whitening_grade < 7.0
+    assert centering_grade > whitening_grade
+
+
+def test_manual_catalog_search_and_confirmation(monkeypatch, tmp_path: Path) -> None:
+    database = tmp_path / "catalog.sqlite"
+    connection = _connect(database)
+    connection.execute(
+        "INSERT INTO series VALUES (?, ?, ?, ?)",
+        ("swsh", "Sword & Shield", "2020-02-07", "now"),
+    )
+    connection.execute(
+        "INSERT INTO sets VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("swsh1", "swsh", "Sword & Shield", "2020-02-07", 202, 202, None, None),
+    )
+    connection.execute(
+        "INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "swsh1-65",
+            "swsh",
+            "swsh1",
+            "Sword & Shield",
+            "065",
+            "Pikachu",
+            "https://example.com/pikachu",
+            None,
+            None,
+            None,
+            "now",
+        ),
+    )
+    connection.commit()
+    connection.close()
+    monkeypatch.setenv("CARD_CATALOG", str(database))
+    monkeypatch.setenv("CARD_GRADER_MODEL", str(tmp_path / "missing.joblib"))
+    client = TestClient(app)
+
+    search = client.get("/api/cards", params={"q": "Pikachu 065"})
+    assert search.status_code == 200
+    assert search.json()["results"][0]["id"] == "swsh1-65"
+
+    grade = client.post(
+        "/api/grade",
+        files={"front": ("front.jpg", card_image_bytes(), "image/jpeg")},
+        data={"card_id": "swsh1-65"},
+    )
+    assert grade.status_code == 200
+    match = grade.json()["identification"]["match"]
+    assert match["id"] == "swsh1-65"
+    assert match["match_method"] == "manual"

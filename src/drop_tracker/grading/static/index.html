@@ -37,6 +37,14 @@
     .identity img { width:70px; height:98px; object-fit:contain; border-radius:6px; }
     .identity strong { display:block; font-size:19px; }
     .identity span { color:var(--muted); font-size:14px; }
+    .identity-search { width:100%; }
+    .card-search-row { display:flex; gap:8px; margin-top:10px; }
+    .card-search-row input { min-width:0; flex:1; padding:10px 12px; border:1px solid #c9cfe1; border-radius:9px; font:inherit; }
+    .card-search-row button { padding:10px 13px; }
+    .card-search-results { display:grid; gap:7px; max-height:300px; overflow:auto; margin-top:10px; }
+    .card-search-result { display:grid; grid-template-columns:42px 1fr auto; gap:9px; align-items:center; padding:8px; border:1px solid var(--line); border-radius:9px; background:#fff; }
+    .card-search-result img { width:42px; height:58px; }
+    .card-search-result button { padding:8px 10px; font-size:12px; }
     .result-grid { display:grid; grid-template-columns:240px 1fr; gap:28px; }
     .grade-card { border-radius:18px; background:var(--ink); color:white; padding:24px; min-height:240px; display:flex; flex-direction:column; justify-content:space-between; }
     .grade-card small { color:#bac3db; text-transform:uppercase; letter-spacing:.12em; font-weight:750; }
@@ -161,10 +169,12 @@
     const errorBox = document.querySelector("#error");
     const results = document.querySelector("#results");
     const manualGuides = {};
+    let selectedCardId = null;
 
     function preview(input, container, side) {
       input.addEventListener("change", () => {
         delete manualGuides[side];
+        if (side === "front") selectedCardId = null;
         const image = container.querySelector("img");
         if (!input.files[0]) { container.classList.remove("has-image"); return; }
         image.src = URL.createObjectURL(input.files[0]);
@@ -179,6 +189,55 @@
         ? "Trained model ready" : "Prototype mode · model not trained";
     }).catch(() => document.querySelector("#model-status").textContent = "Scanner offline");
 
+    function escapeHtml(value) {
+      const element = document.createElement("div");
+      element.textContent = String(value ?? "");
+      return element.innerHTML;
+    }
+
+    function bindCardSearch() {
+      const input = document.querySelector("#card-search-query");
+      const button = document.querySelector("#card-search-button");
+      const output = document.querySelector("#card-search-results");
+      if (!input || !button || !output) return;
+      const runSearch = async () => {
+        const query = input.value.trim();
+        if (!query) return;
+        button.disabled = true;
+        output.textContent = "Searching catalog…";
+        try {
+          const response = await fetch(`/api/cards?q=${encodeURIComponent(query)}`);
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || "Catalog search failed.");
+          output.innerHTML = payload.results.length
+            ? payload.results.map(card => `
+                <div class="card-search-result">
+                  ${card.image_url ? `<img src="${card.image_url}" alt="">` : "<span></span>"}
+                  <span><b>${escapeHtml(card.name)}</b><small>${escapeHtml(card.set_name)} · ${escapeHtml(card.number)}</small></span>
+                  <button type="button" data-card-id="${escapeHtml(card.id)}">This is my card</button>
+                </div>`).join("")
+            : `<span>No cards found. Try a name plus card number, such as “Pikachu 065”.</span>`;
+          output.querySelectorAll("[data-card-id]").forEach(select => {
+            select.addEventListener("click", () => {
+              selectedCardId = select.dataset.cardId;
+              scan.click();
+            });
+          });
+        } catch (error) {
+          output.textContent = error.message;
+        } finally {
+          button.disabled = false;
+        }
+      };
+      button.addEventListener("click", runSearch);
+      input.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          runSearch();
+        }
+      });
+    }
+
     scan.addEventListener("click", async () => {
       errorBox.style.display = "none";
       results.style.display = "none";
@@ -190,6 +249,7 @@
       const form = new FormData();
       form.append("front", front.files[0]);
       if (back.files[0]) form.append("back", back.files[0]);
+      if (selectedCardId) form.append("card_id", selectedCardId);
       Object.entries(manualGuides).forEach(([side, guides]) => {
         Object.entries(guides).forEach(([name, value]) => {
           form.append(`${side}_${name}_mm`, value);
@@ -205,18 +265,30 @@
         const identity = document.querySelector("#identity");
         if (data.identification && data.identification.match) {
           const match = data.identification.match;
+          const matchDescription = match.match_method === "manual"
+            ? "Manually confirmed"
+            : `${Math.round(match.confidence * 100)}% visual confidence`;
           identity.innerHTML = `
             ${match.image_url ? `<img src="${match.image_url}" alt="${match.name} reference image">` : ""}
             <div><small>Catalog match</small><strong>${match.name}</strong>
-              <span>${match.set_name} · ${match.number} · ${Math.round(match.confidence * 100)}% visual confidence</span>
+              <span>${match.set_name} · ${match.number} · ${matchDescription}</span>
             </div>`;
           identity.style.display = "flex";
         } else {
           identity.innerHTML = data.identification && data.identification.catalog_ready
-            ? `<div><strong>No confident card match</strong><span>Use a straight, sharp front photo with the full card visible.</span></div>`
+            ? `<div class="identity-search">
+                <strong>No confident card match</strong>
+                <span>Search the English catalog and confirm the exact printing.</span>
+                <div class="card-search-row">
+                  <input id="card-search-query" type="search" placeholder="Card name and number, e.g. Pikachu 065">
+                  <button id="card-search-button" type="button">Search</button>
+                </div>
+                <div class="card-search-results" id="card-search-results"></div>
+              </div>`
             : `<div><strong>Card catalog is not synced</strong><span>Run drop-sync-card-catalog to enable identification.</span></div>`;
           identity.style.display = "flex";
         }
+        bindCardSearch();
         document.querySelector("#grade").textContent = prediction.grade.toFixed(1);
         document.querySelector("#grade-label").textContent = prediction.label;
         document.querySelector("#range").textContent =
@@ -242,6 +314,7 @@
             .map(([name, value]) => `${name} ${Number(value).toFixed(1)}%`).join(" · ");
           const edgeText = Object.entries(signals.edges)
             .map(([name, value]) => `${name} ${Number(value).toFixed(1)}%`).join(" · ");
+          const defectCounts = signals.defect_counts || { edges:0, corners:0 };
           const highFindings = report.findings.filter(
             finding => finding.severity === "high"
           ).length;
@@ -306,8 +379,8 @@
                   <p>Adjustment mode must be enabled before the green lines can be dragged directly on the card.</p>
                 </div>
                 <div class="signals">
-                  <div class="signal"><b>Corner evidence</b><span>Pale/color-loss pixels: ${cornerText}. Lower is better.</span></div>
-                  <div class="signal"><b>Edge evidence</b><span>Confirmed pale/whitening pixels: ${edgeText}. Blur lowers confidence, not the edge score.</span></div>
+                  <div class="signal"><b>Corner evidence</b><span>${defectCounts.corners} repeated findings · pale/color-loss pixels: ${cornerText}.</span></div>
+                  <div class="signal"><b>Edge evidence</b><span>${defectCounts.edges} repeated findings · confirmed pale/whitening pixels: ${edgeText}. Blur lowers confidence, not the edge score.</span></div>
                   <div class="signal"><b>Surface evidence</b><span>${signals.surface.reference_compared ? `Clean reference compared · ${signals.surface.anomaly_count} scratch/crease candidates` : "Not assessed — requires a confident card match with a clean reference."} Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
                 </div>
                 ${findings}

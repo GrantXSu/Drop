@@ -16,6 +16,8 @@ BASE_FEATURES = (
     "edge_pale",
     "corner_pale_mean",
     "corner_pale_max",
+    "edge_defect_load",
+    "corner_defect_load",
     "surface_glare",
     "surface_dark",
     "surface_damage",
@@ -30,6 +32,8 @@ MODEL_FEATURES = (
     "edge_pale",
     "corner_pale_mean",
     "corner_pale_max",
+    "edge_defect_load",
+    "corner_defect_load",
 )
 SIDES = ("front", "back")
 FEATURE_NAMES = tuple(
@@ -74,12 +78,15 @@ def _heuristic_grade(
         for item in subgrades
         if item["score"] is not None
     }
-    weights = {"centering": 0.20, "corners": 0.25, "edges": 0.25, "surface": 0.30}
+    weights = {"centering": 0.10, "corners": 0.30, "edges": 0.30, "surface": 0.30}
     available_weight = sum(weights[name] for name in by_name)
     grade = sum(by_name[name] * weights[name] for name in by_name) / available_weight
-    # A severe defect should cap the overall estimate instead of being hidden
-    # by an otherwise clean card.
-    grade = min(grade, min(by_name.values()) + 1.5)
+    # Severe physical damage caps the estimate; centering influences the
+    # weighted score but does not impose the same damage ceiling.
+    physical_scores = [
+        by_name[name] for name in ("corners", "edges", "surface") if name in by_name
+    ]
+    grade = min(grade, min(physical_scores) + 1.5)
     grade = float(np.clip(grade, 1.0, 10.0))
     uncertainty = 1.75 if back is None else 1.25
     return GradePrediction(
@@ -273,6 +280,8 @@ def category_subgrades(
     standards = centering_standards(front, back)
     edge = max(side["edge_pale"] for side in sides)
     corner = max(side["corner_pale_max"] for side in sides)
+    edge_load = max(side["edge_defect_load"] for side in sides)
+    corner_load = max(side["corner_defect_load"] for side in sides)
     surface_assessed = any(side["surface_assessed"] >= 0.5 for side in sides)
     surface_damage = max(
         (
@@ -284,8 +293,12 @@ def category_subgrades(
     )
     scores = {
         "centering": float(standards["psa"]),
-        "corners": float(np.clip(10.0 - 20.0 * corner, 1.0, 10.0)),
-        "edges": float(np.clip(10.0 - 25.0 * edge, 1.0, 10.0)),
+        "corners": float(
+            np.clip(10.0 - 12.0 * corner - 5.0 * corner_load, 1.0, 10.0)
+        ),
+        "edges": float(
+            np.clip(10.0 - 15.0 * edge - 6.0 * edge_load, 1.0, 10.0)
+        ),
         "surface": (
             float(np.clip(10.0 - 30.0 * surface_damage, 1.0, 10.0))
             if surface_assessed
@@ -313,14 +326,20 @@ def category_subgrades(
             "name": "Corners",
             "score": scores["corners"],
             "condition": _condition(scores["corners"]),
-            "detail": "Uses only localized corner damage shown in the visual report.",
+            "detail": (
+                "Uses localized corner damage area and repeated finding count "
+                "shown in the visual report."
+            ),
         },
         {
             "key": "edges",
             "name": "Edges",
             "score": scores["edges"],
             "condition": _condition(scores["edges"]),
-            "detail": "Uses only localized edge damage shown in the visual report.",
+            "detail": (
+                "Uses localized edge damage area and repeated finding count "
+                "shown in the visual report."
+            ),
         },
         {
             "key": "surface",
