@@ -696,7 +696,7 @@ def test_ui_collapses_detected_findings() -> None:
     assert 'data-nav="cards"' in response.text
     assert 'data-nav="settings"' in response.text
     assert 'id="prescan-card-query"' in response.text
-    assert 'id="developer-password"' in response.text
+    assert 'id="developer-password"' not in response.text
 
     assert TestClient(app).get("/cards").status_code == 200
     assert TestClient(app).get("/settings").status_code == 200
@@ -930,14 +930,13 @@ def test_developer_password_grants_unlimited_access(
     client = TestClient(app)
     client.get("/api/status")
 
-    denied = client.post(
-        "/api/developer/unlock", json={"password": "incorrect"}
-    )
-    assert denied.status_code == 401
+    denied = client.post("/api/cards/search", json={"query": "incorrect"})
+    assert denied.status_code == 200
+    assert not denied.json()["developer_unlocked"]
 
     unlocked = client.post(
-        "/api/developer/unlock",
-        json={"password": "correct horse battery staple"},
+        "/api/cards/search",
+        json={"query": "correct horse battery staple"},
     )
     assert unlocked.status_code == 200
     billing = unlocked.json()["billing"]

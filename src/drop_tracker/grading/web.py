@@ -63,6 +63,10 @@ class DeveloperUnlockRequest(BaseModel):
     password: str
 
 
+class CardSearchRequest(BaseModel):
+    query: str
+
+
 @app.middleware("http")
 async def ensure_device_cookie(request: Request, call_next):
     device_id, token = resolve_device(request.cookies.get(COOKIE_NAME))
@@ -259,6 +263,25 @@ def developer_lock(request: Request) -> dict:
 def card_search(q: str) -> dict:
     catalog_path = Path(os.getenv("CARD_CATALOG", str(DEFAULT_CATALOG_PATH)))
     return {"results": search_cards(q, catalog_path), "catalog_ready": catalog_path.exists()}
+
+
+@app.post("/api/cards/search")
+def secure_card_search(payload: CardSearchRequest, request: Request) -> dict:
+    query = payload.query.strip()
+    expected = os.getenv("CARDLENS_DEVELOPER_PASSWORD")
+    if expected and hmac.compare_digest(query.encode(), expected.encode()):
+        set_subscription(device_id=request.state.device_id, status="developer")
+        return {
+            "developer_unlocked": True,
+            "billing": usage_status(request.state.device_id),
+            "results": [],
+        }
+    catalog_path = Path(os.getenv("CARD_CATALOG", str(DEFAULT_CATALOG_PATH)))
+    return {
+        "developer_unlocked": False,
+        "results": search_cards(query, catalog_path),
+        "catalog_ready": catalog_path.exists(),
+    }
 
 
 @app.get("/api/history")

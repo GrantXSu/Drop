@@ -212,11 +212,12 @@ The included entitlement is tied to a signed browser/device cookie. Before a
 commercial public launch, add user accounts and a hosted transactional database
 so paid access works across devices and cannot be reset by clearing cookies.
 
-For local development, set `CARDLENS_DEVELOPER_PASSWORD`, open **Settings**, and
-enter it under **Developer access**. The password is verified only by the server
-using a timing-safe comparison; it is never embedded in browser code. Successful
-unlock grants unlimited scans to that signed device. Use HTTPS outside localhost
-and never commit the password.
+For local development, set `CARDLENS_DEVELOPER_PASSWORD` and enter it into the
+pre-scan card search field. The combined search endpoint checks it in a POST body
+before performing a normal catalog search, so the password never appears in a
+URL or browser code. It is verified server-side with a timing-safe comparison.
+Successful unlock grants unlimited scans to that signed device. Use HTTPS
+outside localhost and never commit the password.
 
 ### Sync the card identification catalog
 

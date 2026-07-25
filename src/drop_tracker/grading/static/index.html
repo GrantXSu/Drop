@@ -58,10 +58,6 @@
     .selected-card { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:9px; padding:9px 10px; border-radius:9px; color:#225238; background:#e8f7ed; }
     .selected-card[hidden] { display:none; }
     .selected-card button { min-height:36px; padding:7px 10px; color:var(--ink); background:#d4eadb; font-size:12px; }
-    .developer-row { display:flex; gap:8px; }
-    .developer-row[hidden] { display:none; }
-    .developer-row input { min-width:0; flex:1; padding:10px 12px; border:1px solid #c9cfe1; border-radius:9px; font:inherit; }
-    .developer-message { min-height:20px; color:var(--muted); font-size:12px; }
     .result-grid { display:grid; grid-template-columns:240px 1fr; gap:28px; }
     .grade-card { border-radius:18px; background:var(--ink); color:white; padding:24px; min-height:240px; display:flex; flex-direction:column; justify-content:space-between; }
     .grade-card small { color:#bac3db; text-transform:uppercase; letter-spacing:.12em; font-weight:750; }
@@ -224,7 +220,6 @@
       .identity { flex-direction:column; padding:11px; }
       .identity img { width:58px; height:81px; }
       .card-search-row { flex-direction:column; }
-      .developer-row { flex-direction:column; }
       .card-search-result { grid-template-columns:38px 1fr; }
       .card-search-result button { grid-column:1/-1; width:100%; }
       .guide-editor,.guide-apply-actions { padding-left:9px; padding-right:9px; }
@@ -279,7 +274,7 @@
       </details>
       <div class="prescan-card">
         <strong>Select your card before scanning <small>· optional</small></strong>
-        <span>Search by name, number, set, or card ID to use the exact clean reference.</span>
+        <span>Search by name, number, set, or card ID to use the exact clean reference. Developer access can also be unlocked here.</span>
         <div class="card-search-row">
           <input id="prescan-card-query" type="search" placeholder="Card name and number, e.g. Pikachu 065">
           <button id="prescan-card-search" type="button">Search cards</button>
@@ -379,16 +374,6 @@
         <article class="settings-card">
           <h3>Accuracy</h3>
           <p>Use high-resolution front/back photos, diffuse lighting, and verified training data.</p>
-        </article>
-        <article class="settings-card">
-          <h3>Developer access</h3>
-          <p>Enter the server-configured developer password for unlimited scans on this device.</p>
-          <div class="developer-row" id="developer-unlock-row">
-            <input id="developer-password" type="password" autocomplete="current-password" placeholder="Developer password">
-            <button id="developer-unlock" type="button">Unlock</button>
-          </div>
-          <button id="developer-lock" class="secondary-button" type="button" hidden>Disable developer access</button>
-          <div class="developer-message" id="developer-message"></div>
         </article>
       </div>
     </section>
@@ -718,8 +703,6 @@
       });
       document.querySelector("#manage-billing").hidden = !billing.is_pro;
       document.querySelector("#settings-manage-billing").hidden = !billing.is_pro;
-      document.querySelector("#developer-lock").hidden = !billing.is_developer;
-      document.querySelector("#developer-unlock-row").hidden = billing.is_developer;
       let adsDismissed = false;
       try {
         adsDismissed = sessionStorage.getItem("cardlens_pro_ads_dismissed") === "1";
@@ -803,46 +786,6 @@
       const response = await fetch("/api/history", { method:"DELETE" });
       if (response.ok) loadHistory();
     });
-    async function unlockDeveloperAccess() {
-      const password = document.querySelector("#developer-password");
-      const message = document.querySelector("#developer-message");
-      if (!password.value) return;
-      message.textContent = "Checking developer password…";
-      const response = await fetch("/api/developer/unlock", {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ password:password.value }),
-      });
-      const payload = await response.json();
-      password.value = "";
-      if (response.ok) {
-        updateBilling(payload.billing);
-        message.textContent = "Developer access enabled on this device.";
-      } else {
-        message.textContent = payload.detail || "Developer unlock failed.";
-      }
-    }
-    document.querySelector("#developer-unlock").addEventListener(
-      "click", unlockDeveloperAccess
-    );
-    document.querySelector("#developer-password").addEventListener(
-      "keydown", event => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          unlockDeveloperAccess();
-        }
-      }
-    );
-    document.querySelector("#developer-lock").addEventListener("click", async () => {
-      const response = await fetch("/api/developer/lock", { method:"POST" });
-      const payload = await response.json();
-      if (response.ok) {
-        updateBilling(payload.billing);
-        document.querySelector("#developer-message").textContent =
-          "Developer access disabled.";
-      }
-    });
-
     function escapeHtml(value) {
       const element = document.createElement("div");
       element.textContent = String(value ?? "");
@@ -868,9 +811,20 @@
         button.disabled = true;
         output.textContent = "Searching catalog…";
         try {
-          const response = await fetch(`/api/cards?q=${encodeURIComponent(query)}`);
+          const response = await fetch("/api/cards/search", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body:JSON.stringify({ query }),
+          });
           const payload = await response.json();
           if (!response.ok) throw new Error(payload.detail || "Catalog search failed.");
+          if (payload.developer_unlocked) {
+            updateBilling(payload.billing);
+            input.value = "";
+            output.innerHTML =
+              `<span><b>Developer access enabled.</b> Unlimited scans are active on this device.</span>`;
+            return;
+          }
           output.innerHTML = payload.results.length
             ? payload.results.map((card, index) => `
                 <div class="card-search-result">
