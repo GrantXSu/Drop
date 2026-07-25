@@ -713,12 +713,19 @@ def _apply_surface_reference(
 
     scale_x = analysis.image.shape[1] / observed.shape[1]
     scale_y = analysis.image.shape[0] / observed.shape[0]
+    def surface_severity(area: int) -> str:
+        if area >= 80:
+            return "high"
+        if area >= 20:
+            return "medium"
+        return "small"
+
     for area, x, y, width, height in sorted(anomalies, reverse=True)[:20]:
         analysis.diagnostics["defects"].append(
             {
                 "type": "Surface scratch/crease candidate",
                 "location": "front surface",
-                "severity": "high" if area >= 80 else "medium",
+                "severity": surface_severity(area),
                 "evidence": f"{area} reference-unmatched edge pixels",
                 "bbox": (
                     round(x * scale_x),
@@ -728,15 +735,19 @@ def _apply_surface_reference(
                 ),
             }
         )
-    total_area = sum(item[0] for item in anomalies)
-    damage = float(
-        np.clip(total_area / (observed.shape[0] * observed.shape[1] * 0.015), 0, 1)
+    surface_weight = sum(
+        {"small": 0.10, "medium": 0.50, "high": 2.0}[
+            surface_severity(item[0])
+        ]
+        for item in anomalies
     )
+    damage = float(np.clip(surface_weight / 30.0, 0, 1))
     analysis.features["surface_damage"] = damage
     analysis.features["surface_assessed"] = 1.0
     surface_signals = analysis.diagnostics["condition_signals"]["surface"]
     surface_signals["reference_compared"] = True
     surface_signals["anomaly_count"] = len(anomalies)
+    surface_signals["severity_weight"] = round(surface_weight, 2)
 
 
 def main() -> None:

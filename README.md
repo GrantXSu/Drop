@@ -280,7 +280,9 @@ certification or guarantee of the grade a grading company will assign.
 On card backs, only damage touching the physical cut edge is classified as edge
 whitening. Localized white streaks farther inside the blue border are reported
 as surface scratch/print-line candidates; smooth broad glare is excluded from
-both categories.
+both categories. Surface candidates are labeled small, medium, or high and use
+severity weighting rather than raw highlighted-pixel totals, preventing many
+tiny marks from collapsing the surface grade.
 
 Centering calibration follows the published [PSA grading
 standards](https://www.psacard.com/gradingstandards) and [Beckett grading

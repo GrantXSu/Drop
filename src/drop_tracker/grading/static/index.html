@@ -902,14 +902,18 @@
           const edgeText = Object.entries(signals.edges)
             .map(([name, value]) => `${name} ${Number(value).toFixed(1)}%`).join(" · ");
           const defectCounts = signals.defect_counts || { edges:0, corners:0 };
-          const highFindings = report.findings.filter(
-            finding => finding.severity === "high"
-          ).length;
+          const severityCounts = report.findings.reduce(
+            (counts, finding) => {
+              counts[finding.severity] = (counts[finding.severity] || 0) + 1;
+              return counts;
+            },
+            { high:0, medium:0, small:0 }
+          );
           const findings = report.findings.length
             ? `<details class="findings-dropdown">
                 <summary>
                   <span>Detected findings (${report.findings.length})</span>
-                  <small>${highFindings} high · ${report.findings.length - highFindings} medium</small>
+                  <small>${severityCounts.high} high · ${severityCounts.medium} medium · ${severityCounts.small} small</small>
                 </summary>
                 <div class="findings-list">
                   ${report.findings.map(finding => `
@@ -969,9 +973,9 @@
                   <div class="signal"><b>Corner evidence</b><span>${defectCounts.corners} findings (${Number(defectCounts.corner_weight || 0).toFixed(2)} severity-weighted) · pale/color-loss pixels: ${cornerText}.</span></div>
                   <div class="signal"><b>Edge evidence</b><span>${defectCounts.edges} findings (${Number(defectCounts.edge_weight || 0).toFixed(2)} severity-weighted) · confirmed pale/whitening pixels: ${edgeText}. Medium findings count one-quarter of high findings.</span></div>
                   <div class="signal"><b>Surface evidence</b><span>${signals.surface.reference_compared
-                    ? `Clean reference compared · ${signals.surface.anomaly_count} scratch/crease candidates`
+                    ? `Clean reference compared · ${signals.surface.anomaly_count} candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
                     : signals.surface.localized_border_inspection
-                      ? `Localized back-border inspection · ${signals.surface.anomaly_count} scratch/print-line candidates`
+                      ? `Localized back-border inspection · ${signals.surface.anomaly_count} candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
                       : "Not assessed — requires a confident card match with a clean reference."} Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
                 </div>
                 ${findings}

@@ -600,7 +600,19 @@ def _region_stats(
     corner_defect_weight = 0.0
     surface_anomaly_count = 0
     surface_localized_inspection = False
+    surface_defect_weight = 0.0
     edge_baseline = float(np.median(list(edge_pale.values())))
+
+    def defect_severity(area: int) -> str:
+        if area >= 60:
+            return "high"
+        if area >= 20:
+            return "medium"
+        return "small"
+
+    def defect_weight(severity: str) -> float:
+        return {"small": 0.10, "medium": 0.25, "high": 1.0}[severity]
+
     if side == "back":
         corner_radius = max(18, round(min(height, width) * 0.055))
 
@@ -708,7 +720,8 @@ def _region_stats(
             edge_length = width if nearest_edge in {"top edge", "bottom edge"} else height
             confirmed_edge_signals[nearest_edge] += area / max(1, strip * edge_length)
             edge_defect_count += 1
-            edge_defect_weight += 1.0 if area >= 60 else 0.25
+            severity = defect_severity(int(area))
+            edge_defect_weight += defect_weight(severity)
             horizontal_corner = "left" if center_x < width / 2 else "right"
             vertical_corner = "top" if center_y < height / 2 else "bottom"
             if min(center_x, width - center_x) < corner_radius and min(
@@ -719,13 +732,13 @@ def _region_stats(
                     1, strip * corner_radius
                 )
                 corner_defect_count += 1
-                corner_defect_weight += 1.0 if area >= 60 else 0.25
+                corner_defect_weight += defect_weight(severity)
             padding = 5
             defects.append(
                 {
                     "type": "Localized whitening",
                     "location": "back perimeter",
-                    "severity": "high" if area >= 60 else "medium",
+                    "severity": severity,
                     "evidence": f"{int(area)} highlighted edge pixels",
                     "bbox": (
                         int(max(0, x - padding)),
@@ -765,7 +778,7 @@ def _region_stats(
                 {
                     "type": "Surface scratch/print-line candidate",
                     "location": "back blue border",
-                    "severity": "high" if area >= 60 else "medium",
+                    "severity": defect_severity(int(area)),
                     "evidence": f"{int(area)} localized surface pixels",
                     "bbox": (
                         int(max(0, x - padding)),
@@ -779,13 +792,16 @@ def _region_stats(
             surface_anomaly_count = len(surface_components)
             surface_localized_inspection = True
             features["surface_assessed"] = 1.0
+            surface_defect_weight = sum(
+                {
+                    "small": 0.10,
+                    "medium": 0.50,
+                    "high": 2.0,
+                }[defect_severity(int(item[0]))]
+                for item in surface_components
+            )
             features["surface_damage"] = float(
-                np.clip(
-                    sum(item[0] for item in surface_components)
-                    / max(1.0, float(inner_border_mask.sum()) * 0.01),
-                    0.0,
-                    1.0,
-                )
+                np.clip(surface_defect_weight / 30.0, 0.0, 1.0)
             )
 
     edge_boxes = {
@@ -853,6 +869,7 @@ def _region_stats(
                 "reference_compared": False,
                 "localized_border_inspection": surface_localized_inspection,
                 "anomaly_count": surface_anomaly_count,
+                "severity_weight": round(surface_defect_weight, 2),
             },
         },
         "image_width": width,

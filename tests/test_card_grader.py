@@ -296,6 +296,21 @@ def test_inner_blue_border_streak_is_surface_not_edge_whitening() -> None:
     ]
 
 
+def test_tiny_inner_border_streak_is_labeled_small() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    cv2.line(card, (CARD_WIDTH // 2, 13), (CARD_WIDTH // 2, 21), (235, 235, 235), 1)
+
+    _, diagnostics = _region_stats(card, side="back")
+    surface_findings = [
+        finding
+        for finding in diagnostics["defects"]
+        if finding["type"] == "Surface scratch/print-line candidate"
+    ]
+
+    assert surface_findings
+    assert surface_findings[0]["severity"] == "small"
+
+
 def test_smooth_top_border_glare_is_not_whitening() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
     y, x = np.mgrid[:CARD_HEIGHT, :CARD_WIDTH]
@@ -747,6 +762,22 @@ def test_medium_whitening_findings_do_not_score_like_high_damage() -> None:
     edges = category_subgrades(features, features)[2]
 
     assert 6.5 <= edges["score"] <= 8.0
+
+
+def test_many_small_surface_marks_do_not_collapse_surface_grade() -> None:
+    features = {name: 0.0 for name in BASE_FEATURES}
+    features.update(
+        {
+            "centering_x": 1.0,
+            "centering_y": 1.0,
+            "surface_assessed": 1.0,
+            "surface_damage": 19 * 0.10 / 30.0,
+        }
+    )
+
+    surface = category_subgrades(features, features)[-1]
+
+    assert surface["score"] >= 8.0
 
 
 def test_manual_catalog_search_and_confirmation(monkeypatch, tmp_path: Path) -> None:
