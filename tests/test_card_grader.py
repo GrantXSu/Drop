@@ -19,6 +19,7 @@ from drop_tracker.grading.features import (
     CARD_WIDTH,
     CardImageError,
     _border_measurements,
+    _region_stats,
     analyze_image,
     annotated_image,
     source_boundary_image,
@@ -213,6 +214,38 @@ def test_back_analysis_marks_non_blue_corner_whitening() -> None:
     assert any(
         finding["type"] == "Localized whitening"
         for finding in analysis.diagnostics["defects"]
+    )
+
+
+def test_back_whitening_ignores_smooth_glare_but_finds_small_chip() -> None:
+    clean = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    y, x = np.mgrid[:CARD_HEIGHT, :CARD_WIDTH]
+    glare_alpha = 0.48 * np.exp(
+        -(((x - 8) / 75.0) ** 2 + ((y - CARD_HEIGHT / 2) / 310.0) ** 2)
+    )
+    glare = (
+        clean.astype(np.float32) * (1.0 - glare_alpha[:, :, None])
+        + 255.0 * glare_alpha[:, :, None]
+    ).astype(np.uint8)
+
+    _, glare_diagnostics = _region_stats(glare, side="back")
+
+    assert glare_diagnostics["defects"] == []
+
+    chipped = clean.copy()
+    cv2.rectangle(
+        chipped,
+        (CARD_WIDTH - 24, 0),
+        (CARD_WIDTH - 12, 12),
+        (235, 235, 235),
+        -1,
+    )
+    _, chip_diagnostics = _region_stats(chipped, side="back")
+
+    assert any(
+        finding["type"] == "Localized whitening"
+        and finding["bbox"][0] > CARD_WIDTH - 50
+        for finding in chip_diagnostics["defects"]
     )
 
 

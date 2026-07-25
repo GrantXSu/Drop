@@ -574,26 +574,58 @@ def _region_stats(
     if side == "back":
         corner_radius = max(18, round(min(height, width) * 0.055))
 
-        def rounded_card_mask(inset: int) -> np.ndarray:
+        def fallback_card_mask() -> np.ndarray:
             mask = np.zeros((height, width), dtype=np.uint8)
-            radius = max(1, corner_radius - inset)
-            left, top = inset, inset
-            right, bottom = width - 1 - inset, height - 1 - inset
-            cv2.rectangle(mask, (left + radius, top), (right - radius, bottom), 255, -1)
-            cv2.rectangle(mask, (left, top + radius), (right, bottom - radius), 255, -1)
+            radius = corner_radius
+            cv2.rectangle(mask, (radius, 0), (width - 1 - radius, height - 1), 255, -1)
+            cv2.rectangle(mask, (0, radius), (width - 1, height - 1 - radius), 255, -1)
             for center in (
-                (left + radius, top + radius),
-                (right - radius, top + radius),
-                (left + radius, bottom - radius),
-                (right - radius, bottom - radius),
+                (radius, radius),
+                (width - 1 - radius, radius),
+                (radius, height - 1 - radius),
+                (width - 1 - radius, height - 1 - radius),
             ):
                 cv2.circle(mask, center, radius, 255, -1)
-            return mask.astype(bool)
+            return mask
 
-        safe_outer = rounded_card_mask(edge_inset)
-        safe_inner = rounded_card_mask(edge_inset + strip)
-        perimeter_mask = safe_outer & ~safe_inner
-        localized = (pale & perimeter_mask).astype(np.uint8) * 255
+        # Recover the real rounded card silhouette from its blue outer ink.
+        # Closing bridges small white chips so they remain inside the shape.
+        blue_border = cv2.inRange(hsv, (90, 55, 25), (145, 255, 255))
+        blue_border = cv2.morphologyEx(
+            blue_border,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13)),
+        )
+        contours, _ = cv2.findContours(
+            blue_border, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        card_mask = fallback_card_mask()
+        if contours:
+            candidate = max(contours, key=cv2.contourArea)
+            if cv2.contourArea(candidate) >= width * height * 0.25:
+                card_mask = np.zeros((height, width), dtype=np.uint8)
+                cv2.drawContours(
+                    card_mask, [cv2.convexHull(candidate)], -1, 255, -1
+                )
+
+        padded_mask = cv2.copyMakeBorder(
+            card_mask, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0
+        )
+        distance = cv2.distanceTransform(padded_mask, cv2.DIST_L2, 5)[
+            1:-1, 1:-1
+        ]
+        perimeter_mask = (distance > edge_inset) & (
+            distance <= edge_inset + strip
+        )
+
+        saturation = hsv[:, :, 1].astype(np.float32)
+        value = hsv[:, :, 2].astype(np.float32)
+        local_saturation = cv2.GaussianBlur(saturation, (0, 0), 7.0)
+        local_value = cv2.GaussianBlur(value, (0, 0), 7.0)
+        localized_change = (
+            ((local_saturation - saturation) > 18) & (value >= local_value - 8)
+        ) | (((value - local_value) > 22) & (saturation < 140))
+        localized = (pale & perimeter_mask & localized_change).astype(np.uint8) * 255
         localized = cv2.morphologyEx(
             localized, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
         )
@@ -601,9 +633,9 @@ def _region_stats(
         components = []
         for index in range(1, component_count):
             x, y, box_width, box_height, area = stats[index]
-            if area < 16 or area > width * height * 0.008:
+            if area < 5 or area > width * height * 0.008:
                 continue
-            if box_width > width * 0.22 or box_height > height * 0.22:
+            if box_width > width * 0.12 or box_height > height * 0.12:
                 continue
             components.append((area, x, y, box_width, box_height))
         for area, x, y, box_width, box_height in sorted(
