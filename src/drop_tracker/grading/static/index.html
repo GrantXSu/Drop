@@ -968,7 +968,11 @@
                 <div class="signals">
                   <div class="signal"><b>Corner evidence</b><span>${defectCounts.corners} repeated findings · pale/color-loss pixels: ${cornerText}.</span></div>
                   <div class="signal"><b>Edge evidence</b><span>${defectCounts.edges} repeated findings · confirmed pale/whitening pixels: ${edgeText}. Blur lowers confidence, not the edge score.</span></div>
-                  <div class="signal"><b>Surface evidence</b><span>${signals.surface.reference_compared ? `Clean reference compared · ${signals.surface.anomaly_count} scratch/crease candidates` : "Not assessed — requires a confident card match with a clean reference."} Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
+                  <div class="signal"><b>Surface evidence</b><span>${signals.surface.reference_compared
+                    ? `Clean reference compared · ${signals.surface.anomaly_count} scratch/crease candidates`
+                    : signals.surface.localized_border_inspection
+                      ? `Localized back-border inspection · ${signals.surface.anomaly_count} scratch/print-line candidates`
+                      : "Not assessed — requires a confident card match with a clean reference."} Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
                 </div>
                 ${findings}
               </div>

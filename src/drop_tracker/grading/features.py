@@ -596,6 +596,8 @@ def _region_stats(
     }
     edge_defect_count = 0
     corner_defect_count = 0
+    surface_anomaly_count = 0
+    surface_localized_inspection = False
     edge_baseline = float(np.median(list(edge_pale.values())))
     if side == "back":
         corner_radius = max(18, round(min(height, width) * 0.055))
@@ -640,20 +642,30 @@ def _region_stats(
         distance = cv2.distanceTransform(padded_mask, cv2.DIST_L2, 5)[
             1:-1, 1:-1
         ]
-        # The silhouette already removes the tabletop, so include the first
-        # physical pixels where corner whitening most often begins.
-        perimeter_mask = (distance > 0) & (distance <= strip + 2)
+        # Only damage touching the cut edge is edge whitening. White marks
+        # farther inside the blue border are surface defects, not edge wear.
+        cut_edge_depth = max(6, round(min(height, width) * 0.012))
+        surface_depth = max(cut_edge_depth + 1, round(min(height, width) * 0.040))
+        perimeter_mask = (distance > 0) & (distance <= cut_edge_depth)
+        inner_border_mask = (distance > cut_edge_depth) & (
+            distance <= surface_depth
+        )
 
         saturation = hsv[:, :, 1].astype(np.float32)
         value = hsv[:, :, 2].astype(np.float32)
         local_saturation = cv2.GaussianBlur(saturation, (0, 0), 7.0)
         local_value = cv2.GaussianBlur(value, (0, 0), 7.0)
         localized_change = (
-            ((local_saturation - saturation) > 14) & (value >= local_value - 10)
-        ) | (((value - local_value) > 22) & (saturation < 140))
+            ((local_saturation - saturation) > 18) & (value > local_value + 3)
+        ) | (((value - local_value) > 25) & (saturation < 135))
         strong_white = (saturation < 55) & (value > 155)
+        strong_local_white = (
+            strong_white
+            & (local_saturation > 80)
+            & ((local_saturation - saturation) > 8)
+        )
         localized = (
-            pale & perimeter_mask & (localized_change | strong_white)
+            pale & perimeter_mask & (localized_change | strong_local_white)
         ).astype(np.uint8) * 255
         localized = cv2.morphologyEx(
             localized, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
@@ -662,7 +674,7 @@ def _region_stats(
         components = []
         for index in range(1, component_count):
             x, y, box_width, box_height, area = stats[index]
-            if area < 3 or area > width * height * 0.012:
+            if area < 5 or area > width * height * 0.012:
                 continue
             near_corner = (
                 (x < corner_radius * 2 or x + box_width > width - corner_radius * 2)
@@ -716,6 +728,58 @@ def _region_stats(
                         int(min(height, y + box_height + padding)),
                     ),
                 }
+            )
+
+        surface_mask = (
+            pale
+            & inner_border_mask
+            & (localized_change | strong_local_white)
+            & (local_saturation > 70)
+        ).astype(np.uint8) * 255
+        surface_mask = cv2.morphologyEx(
+            surface_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
+        )
+        surface_count, _, surface_stats, _ = cv2.connectedComponentsWithStats(
+            surface_mask
+        )
+        surface_components = []
+        for index in range(1, surface_count):
+            x, y, box_width, box_height, area = surface_stats[index]
+            short, long = sorted((box_width, box_height))
+            if area < 5 or short <= 0 or long < 7 or long / short < 2.0:
+                continue
+            if box_width > width * 0.15 or box_height > height * 0.15:
+                continue
+            surface_components.append((area, x, y, box_width, box_height))
+        for area, x, y, box_width, box_height in sorted(
+            surface_components, reverse=True
+        )[:20]:
+            padding = 5
+            defects.append(
+                {
+                    "type": "Surface scratch/print-line candidate",
+                    "location": "back blue border",
+                    "severity": "high" if area >= 60 else "medium",
+                    "evidence": f"{int(area)} localized surface pixels",
+                    "bbox": (
+                        int(max(0, x - padding)),
+                        int(max(0, y - padding)),
+                        int(min(width, x + box_width + padding)),
+                        int(min(height, y + box_height + padding)),
+                    ),
+                }
+            )
+        if surface_components:
+            surface_anomaly_count = len(surface_components)
+            surface_localized_inspection = True
+            features["surface_assessed"] = 1.0
+            features["surface_damage"] = float(
+                np.clip(
+                    sum(item[0] for item in surface_components)
+                    / max(1.0, float(inner_border_mask.sum()) * 0.01),
+                    0.0,
+                    1.0,
+                )
             )
 
     edge_boxes = {
@@ -778,7 +842,8 @@ def _region_stats(
                 "dark_percent": round(float(dark.mean()) * 100, 1),
                 "sharpness_percent": round(features["sharpness"] * 100, 1),
                 "reference_compared": False,
-                "anomaly_count": 0,
+                "localized_border_inspection": surface_localized_inspection,
+                "anomaly_count": surface_anomaly_count,
             },
         },
         "image_width": width,

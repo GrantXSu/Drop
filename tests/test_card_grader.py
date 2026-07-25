@@ -280,6 +280,41 @@ def test_back_whitening_ignores_smooth_glare_but_finds_small_chip() -> None:
     )
 
 
+def test_inner_blue_border_streak_is_surface_not_edge_whitening() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    cv2.line(card, (CARD_WIDTH // 2, 13), (CARD_WIDTH // 2, 31), (235, 235, 235), 3)
+
+    features, diagnostics = _region_stats(card, side="back")
+    finding_types = [finding["type"] for finding in diagnostics["defects"]]
+
+    assert "Surface scratch/print-line candidate" in finding_types
+    assert "Localized whitening" not in finding_types
+    assert features["surface_assessed"] == 1.0
+    assert features["surface_damage"] > 0
+    assert diagnostics["condition_signals"]["surface"][
+        "localized_border_inspection"
+    ]
+
+
+def test_smooth_top_border_glare_is_not_whitening() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    y, x = np.mgrid[:CARD_HEIGHT, :CARD_WIDTH]
+    alpha = 0.40 * np.exp(
+        -(((x - CARD_WIDTH / 2) / 230.0) ** 2 + ((y - 5) / 28.0) ** 2)
+    )
+    glare = (
+        card.astype(np.float32) * (1.0 - alpha[:, :, None])
+        + 255.0 * alpha[:, :, None]
+    ).astype(np.uint8)
+
+    _, diagnostics = _region_stats(glare, side="back")
+
+    assert not any(
+        finding["type"] == "Localized whitening"
+        for finding in diagnostics["defects"]
+    )
+
+
 def test_back_whitening_finds_wear_on_outermost_corner_pixels() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
     cv2.rectangle(card, (10, 0), (20, 4), (225, 225, 225), -1)

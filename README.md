@@ -277,6 +277,10 @@ permission where needed.
 CardLens is not affiliated with PSA and cannot inspect damage hidden by glare,
 sleeves, holders, or image resolution. Its result is an estimate, not a
 certification or guarantee of the grade a grading company will assign.
+On card backs, only damage touching the physical cut edge is classified as edge
+whitening. Localized white streaks farther inside the blue border are reported
+as surface scratch/print-line candidates; smooth broad glare is excluded from
+both categories.
 
 Centering calibration follows the published [PSA grading
 standards](https://www.psacard.com/gradingstandards) and [Beckett grading
