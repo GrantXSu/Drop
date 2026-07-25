@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from urllib.parse import quote
 
 import cv2
 import httpx
@@ -23,6 +24,39 @@ API_BASE = "https://api.tcgdex.net/v2/en"
 DEFAULT_CATALOG_PATH = Path("data/grading/card_catalog.sqlite")
 DEFAULT_SERIES = ("all",)
 USER_AGENT = "DropCardGrader/0.1 (catalog sync; TCGdex)"
+FALLBACK_IMAGE_BASE = "https://images.pokemontcg.io"
+
+
+def _fallback_set_id(set_id: str) -> str:
+    if set_id.endswith(".5tg"):
+        return set_id.replace(".5tg", "tg")
+    return set_id
+
+
+def _fallback_image_url(
+    set_id: str, local_id: str, high_resolution: bool = False
+) -> str:
+    suffix = "_hires.png" if high_resolution else ".png"
+    return (
+        f"{FALLBACK_IMAGE_BASE}/{quote(_fallback_set_id(set_id))}/"
+        f"{quote(local_id)}{suffix}"
+    )
+
+
+def _image_asset_url(
+    image_url: Optional[str],
+    set_id: str,
+    local_id: str,
+    high_resolution: bool = False,
+) -> str:
+    if not image_url:
+        return _fallback_image_url(set_id, local_id, high_resolution)
+    if image_url.endswith((".png", ".jpg", ".jpeg", ".webp")):
+        if high_resolution and image_url.endswith(".png"):
+            return image_url.removesuffix(".png") + "_hires.png"
+        return image_url
+    size = "high" if high_resolution else "low"
+    return f"{image_url}/{size}.webp"
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -127,11 +161,14 @@ def _reference_profile(data: bytes) -> Tuple[str, str, str]:
 
 def _download_profile(card: Dict[str, str]) -> Tuple[str, Optional[Tuple[str, str, str]], Optional[str]]:
     image_base = card.get("image")
-    if not image_base:
-        return card["id"], None, "no reference image"
+    image_url = _image_asset_url(
+        image_base,
+        card["set_id"],
+        card["localId"],
+    )
     try:
         response = httpx.get(
-            f"{image_base}/low.webp",
+            image_url,
             timeout=20.0,
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
@@ -216,6 +253,9 @@ def sync_catalog(
                 )
                 set_count += 1
                 for card in set_data.get("cards", []):
+                    image_url = card.get("image") or _fallback_image_url(
+                        set_data["id"], card["localId"]
+                    )
                     connection.execute(
                         """
                         INSERT INTO cards(
@@ -238,11 +278,11 @@ def sync_catalog(
                             set_data["name"],
                             card["localId"],
                             card["name"],
-                            card.get("image"),
+                            image_url,
                             now,
                         ),
                     )
-                    if with_images and card.get("image"):
+                    if with_images:
                         existing = connection.execute(
                             """
                             SELECT perceptual_hash, reference_features
@@ -261,7 +301,13 @@ def sync_catalog(
                             or "centering_distances" not in reference
                             or "reference_thumbnail" not in reference
                         ):
-                            cards_to_profile.append(card)
+                            cards_to_profile.append(
+                                {
+                                    **card,
+                                    "image": image_url,
+                                    "set_id": set_data["id"],
+                                }
+                            )
                 connection.commit()
 
     failures = []
@@ -428,8 +474,11 @@ def identify_card(
                 "set_id": row["set_id"],
                 "set_name": row["set_name"],
                 "number": row["local_id"],
-                "image_url": (
-                    f"{row['image_url']}/high.webp" if row["image_url"] else None
+                "image_url": _image_asset_url(
+                    row["image_url"],
+                    row["set_id"],
+                    row["local_id"],
+                    high_resolution=True,
                 ),
                 "confidence": round(confidence, 3),
                 "match_method": "visual",
@@ -481,8 +530,11 @@ def search_cards(
             "set_id": row["set_id"],
             "set_name": row["set_name"],
             "number": row["local_id"],
-            "image_url": (
-                f"{row['image_url']}/high.webp" if row["image_url"] else None
+            "image_url": _image_asset_url(
+                row["image_url"],
+                row["set_id"],
+                row["local_id"],
+                high_resolution=True,
             ),
         }
         for row in rows
@@ -514,7 +566,12 @@ def get_card(
         "set_id": row["set_id"],
         "set_name": row["set_name"],
         "number": row["local_id"],
-        "image_url": f"{row['image_url']}/high.webp" if row["image_url"] else None,
+        "image_url": _image_asset_url(
+            row["image_url"],
+            row["set_id"],
+            row["local_id"],
+            high_resolution=True,
+        ),
         "confidence": 1.0,
         "match_method": "manual",
         "reference_features": (

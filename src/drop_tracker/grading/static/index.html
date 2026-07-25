@@ -51,7 +51,11 @@
     .card-search-row button { padding:10px 13px; }
     .card-search-results { display:grid; gap:7px; max-height:300px; overflow:auto; margin-top:10px; }
     .card-search-result { display:grid; grid-template-columns:42px 1fr auto; gap:9px; align-items:center; padding:8px; border:1px solid var(--line); border-radius:9px; background:#fff; }
-    .card-search-result img { width:42px; height:58px; }
+    .card-result-image { display:grid; place-items:center; width:42px; height:58px; overflow:hidden; border-radius:5px; color:var(--muted); background:#ece9e2; font-size:9px; text-align:center; }
+    .card-result-image img { grid-area:1/1; width:42px; height:58px; object-fit:contain; background:#fff; }
+    .card-result-image span { display:none; grid-area:1/1; }
+    .card-result-image.missing img { display:none; }
+    .card-result-image.missing span { display:block; }
     .card-search-result button { padding:8px 10px; font-size:12px; }
     .prescan-card { margin-bottom:14px; padding:12px; border:1px solid #d8dced; border-radius:12px; background:#f7f8fd; }
     .prescan-card > span { color:var(--muted); font-size:13px; }
@@ -828,7 +832,10 @@
           output.innerHTML = payload.results.length
             ? payload.results.map((card, index) => `
                 <div class="card-search-result">
-                  ${card.image_url ? `<img src="${card.image_url}" alt="">` : "<span></span>"}
+                  <div class="card-result-image${card.image_url ? "" : " missing"}">
+                    <span>No image</span>
+                    ${card.image_url ? `<img src="${card.image_url}" alt="" onerror="this.parentElement.classList.add('missing')">` : ""}
+                  </div>
                   <span><b>${escapeHtml(card.name)}</b><small>${escapeHtml(card.set_name)} · ${escapeHtml(card.number)}</small></span>
                   <button type="button" data-result-index="${index}">This is my card</button>
                 </div>`).join("")

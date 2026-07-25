@@ -240,6 +240,11 @@ illustrated printings. For confident matches, the clean reference layout
 calibrates expected print placement and checks for localized surface anomalies
 without moving the detected border guides.
 
+When a TCGdex record has metadata but no English artwork URL, including some
+Trainer Gallery cards, CardLens falls back to the Pokémon TCG image CDN for
+search thumbnails and visual profiling. Failed images show an explicit
+placeholder instead of an empty column.
+
 When visual matching is not confident, the report provides a catalog search.
 Enter a name, number, set, or combination such as `Pikachu 065`, then choose
 **This is my card** to rerun the report with that exact reference.

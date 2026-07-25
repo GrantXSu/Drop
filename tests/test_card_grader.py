@@ -16,6 +16,7 @@ import drop_tracker.grading.catalog as catalog_module
 import drop_tracker.grading.web as web_module
 from drop_tracker.grading.catalog import (
     _connect,
+    _image_asset_url,
     _reference_profile,
     apply_reference_baseline,
     identify_card,
@@ -516,6 +517,15 @@ def test_catalog_identifies_matching_reference(tmp_path: Path) -> None:
     assert matches[0]["id"] == "sv-test-1"
     assert matches[0]["confidence"] == 1.0
     assert matches[0]["keypoint_similarity"] >= 0.0
+
+
+def test_missing_tcgdex_trainer_gallery_image_uses_fallback_cdn() -> None:
+    assert _image_asset_url(
+        None,
+        "swsh11.5tg",
+        "TG16",
+        high_resolution=True,
+    ) == "https://images.pokemontcg.io/swsh11tg/TG16_hires.png"
 
 
 def test_catalog_all_mode_discovers_every_english_series(
