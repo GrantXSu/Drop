@@ -1,6 +1,7 @@
 from drop_tracker.main import (
     Availability,
     Config,
+    DEFAULT_DISCOVERY_URLS,
     ProductListing,
     Tracker,
     detect_availability,
@@ -119,6 +120,18 @@ def test_listing_parser_detects_stock_and_tcg_priority() -> None:
     assert tcg.is_tcg is True
     assert plush.availability == Availability.AVAILABLE
     assert plush.is_tcg is False
+
+
+def test_config_keeps_broad_discovery_with_legacy_env(monkeypatch) -> None:
+    legacy_tcg_url = "https://www.pokemoncenter.com/category/trading-card-game"
+    custom_url = "https://www.pokemoncenter.com/category/clothing"
+    monkeypatch.setenv("DISCOVERY_URLS", f"{legacy_tcg_url},{custom_url}")
+
+    config = Config.from_env()
+
+    assert config.discovery_urls[: len(DEFAULT_DISCOVERY_URLS)] == DEFAULT_DISCOVERY_URLS
+    assert custom_url in config.discovery_urls
+    assert config.discovery_urls.count(legacy_tcg_url) == 1
 
 
 def test_tracker_baselines_then_alerts_for_new_and_restocked_products(

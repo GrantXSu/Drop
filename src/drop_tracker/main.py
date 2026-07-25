@@ -67,8 +67,11 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         target_urls = _split_values(os.getenv("TARGET_URLS", ""))
-        discovery_urls = _split_values(
-            os.getenv("DISCOVERY_URLS", ",".join(DEFAULT_DISCOVERY_URLS))
+        configured_discovery_urls = _split_values(os.getenv("DISCOVERY_URLS", ""))
+        # Keep the broad defaults even when an older .env only names the TCG page.
+        # This ensures non-TCG launches, such as apparel collaborations, are seen.
+        discovery_urls = tuple(
+            dict.fromkeys((*DEFAULT_DISCOVERY_URLS, *configured_discovery_urls))
         )
         match_terms = tuple(
             term.casefold()
