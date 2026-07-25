@@ -512,6 +512,9 @@ def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
     assert "Add a back photo" in payload["warnings"][-1]
     assert payload["visual_reports"][0]["side"] == "Front"
     assert payload["visual_reports"][0]["image"].startswith("data:image/jpeg;base64,")
+    assert payload["visual_reports"][0]["card_image"].startswith(
+        "data:image/jpeg;base64,"
+    )
     assert payload["visual_reports"][0]["source_image"].startswith("data:image/jpeg;base64,")
     assert "/" in payload["visual_reports"][0]["centering"]["horizontal"]
     assert set(payload["visual_reports"][0]["condition_signals"]) == {
@@ -528,7 +531,8 @@ def test_ui_collapses_detected_findings() -> None:
     assert response.headers["cache-control"].startswith("no-store")
     assert 'class="findings-dropdown"' in response.text
     assert "Detected findings (" in response.text
-    assert "Adjust centering guides manually" in response.text
+    assert "Enable line adjustment" in response.text
+    assert 'class="drag-guide' in response.text
 
 
 def test_grade_api_applies_manual_centering_guides(monkeypatch, tmp_path: Path) -> None:

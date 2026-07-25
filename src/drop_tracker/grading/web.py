@@ -52,6 +52,7 @@ def _visual_report(side: str, analysis: CardAnalysis) -> dict:
         "side": side,
         "source_image": encode(source_boundary_image(analysis)),
         "image": encode(annotated_image(analysis)),
+        "card_image": encode(analysis.image),
         "centering": {
             "horizontal": f"{centering['left_percent']}/{centering['right_percent']}",
             "vertical": f"{centering['top_percent']}/{centering['bottom_percent']}",
@@ -60,6 +61,7 @@ def _visual_report(side: str, analysis: CardAnalysis) -> dict:
             "top": centering["top_percent"],
             "bottom": centering["bottom_percent"],
             "distances": centering["distances"],
+            "guides": centering["guides"],
             "distance_mm": centering["distance_mm"],
             "card_dimensions": centering["card_dimensions"],
             "offset": centering["offset"],

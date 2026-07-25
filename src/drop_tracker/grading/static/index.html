@@ -68,14 +68,24 @@
     .findings-dropdown summary { display:flex; justify-content:space-between; gap:12px; padding:12px 14px; cursor:pointer; font-weight:800; }
     .findings-dropdown summary small { color:var(--muted); font-weight:600; }
     .findings-list { max-height:360px; overflow:auto; padding:0 14px 14px; border-top:1px solid var(--line); }
-    .guide-editor { margin:14px 0; border:1px solid #cfd6ef; border-radius:12px; background:#f5f7ff; }
-    .guide-editor summary { padding:11px 13px; cursor:pointer; font-weight:800; }
-    .guide-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px 16px; padding:4px 13px 12px; }
-    .guide-control { display:grid; grid-template-columns:52px 1fr 58px; gap:8px; align-items:center; font-size:13px; }
-    .guide-control output { text-align:right; font-weight:750; }
-    .guide-actions { display:flex; gap:8px; padding:0 13px 13px; }
+    .guide-editor { margin:14px 0; padding:12px 13px; border:1px solid #cfd6ef; border-radius:12px; background:#f5f7ff; }
+    .guide-editor p { margin:8px 0 0; color:var(--muted); font-size:13px; }
+    .guide-actions { display:flex; flex-wrap:wrap; gap:8px; }
     .guide-actions button { padding:9px 12px; font-size:13px; }
     .guide-actions .reset-guides { color:var(--ink); background:#e4e7f1; }
+    .guide-actions .cancel-guides { color:var(--ink); background:#e4e7f1; }
+    .guide-canvas { position:relative; width:min(100%,414px); aspect-ratio:5/7; margin:0 auto; overflow:hidden; background:#e8e5de; touch-action:none; }
+    .guide-canvas[hidden],.guide-apply-actions[hidden] { display:none; }
+    .guide-canvas img { width:100%; height:100%; max-height:none; object-fit:fill; pointer-events:none; }
+    .drag-guide { position:absolute; z-index:3; background:#34f05e; box-shadow:0 0 0 2px #152217; touch-action:none; }
+    .drag-guide.vertical { top:0; bottom:0; width:3px; cursor:ew-resize; transform:translateX(-50%); }
+    .drag-guide.horizontal { left:0; right:0; height:3px; cursor:ns-resize; transform:translateY(-50%); }
+    .drag-guide span { position:absolute; padding:2px 5px; border-radius:5px; color:#102015; background:#9bffac; font-size:11px; font-weight:850; white-space:nowrap; }
+    .drag-guide.vertical span { top:6px; left:5px; }
+    .drag-guide.horizontal span { top:5px; left:6px; }
+    .drag-guide[data-guide="right"] span { right:5px; left:auto; }
+    .drag-guide[data-guide="bottom"] span { top:auto; bottom:5px; }
+    .guide-apply-actions { display:flex; justify-content:center; gap:8px; padding:10px; background:#f5f7ff; }
     .signals { display:grid; gap:9px; margin:16px 0; }
     .signal { padding:10px 12px; border-radius:10px; background:#f5f3ed; font-size:13px; }
     .signal b { display:block; margin-bottom:3px; }
@@ -253,18 +263,32 @@
               </details>`
             : `<div class="clear">No localized whitening or glare signals exceeded the detection threshold.</div>`;
           const sideKey = report.side.toLowerCase();
-          const guideControls = ["left", "right", "top", "bottom"].map(name => `
-            <label class="guide-control">
-              <span>${name[0].toUpperCase() + name.slice(1)}</span>
-              <input type="range" min="0.2" max="5" step="0.1"
-                data-guide="${name}" value="${report.centering.distance_mm[name]}">
-              <output>${Number(report.centering.distance_mm[name]).toFixed(1)} mm</output>
-            </label>`).join("");
+          const guides = report.centering.guides;
+          const dimensions = report.centering.card_dimensions;
+          const line = (name, orientation, position) => `
+            <div class="drag-guide ${orientation}" data-guide="${name}"
+              data-mm="${report.centering.distance_mm[name]}"
+              style="${orientation === "vertical" ? "left" : "top"}:${position}%">
+              <span>${name[0].toUpperCase()} ${Number(report.centering.distance_mm[name]).toFixed(1)} mm</span>
+            </div>`;
           return `
             <article class="evidence-card">
               <img src="${report.source_image}" alt="${report.side} original upload with detected physical card boundary">
               <p class="image-caption">Original upload · green outline is the farthest physical edge used</p>
-              <img src="${report.image}" alt="${report.side} card with centering and defect annotations">
+              <div class="measurement-stage">
+                <img class="annotated-image" src="${report.image}" alt="${report.side} card with centering and defect annotations">
+                <div class="guide-canvas" data-side="${sideKey}" hidden>
+                  <img src="${report.card_image}" alt="${report.side} normalized card for manual guide adjustment">
+                  ${line("left", "vertical", guides.left / (dimensions.width - 1) * 100)}
+                  ${line("right", "vertical", guides.right / (dimensions.width - 1) * 100)}
+                  ${line("top", "horizontal", guides.top / (dimensions.height - 1) * 100)}
+                  ${line("bottom", "horizontal", guides.bottom / (dimensions.height - 1) * 100)}
+                </div>
+                <div class="guide-apply-actions" hidden>
+                  <button type="button" class="apply-guides">Apply and recalculate</button>
+                  <button type="button" class="cancel-guides">Cancel</button>
+                </div>
+              </div>
               <p class="image-caption">Perspective-corrected border measurement</p>
               <div class="evidence-copy">
                 <h3>${report.side} inspection</h3>
@@ -274,14 +298,13 @@
                   <span class="measurement">L ${report.centering.distance_mm.left.toFixed(1)}mm ↔ R ${report.centering.distance_mm.right.toFixed(1)}mm</span>
                   <span class="measurement">T ${report.centering.distance_mm.top.toFixed(1)}mm ↕ B ${report.centering.distance_mm.bottom.toFixed(1)}mm</span>
                 </div>
-                <details class="guide-editor" data-side="${sideKey}" ${report.centering.manual_override ? "open" : ""}>
-                  <summary>Adjust centering guides manually${report.centering.manual_override ? " · applied" : ""}</summary>
-                  <div class="guide-grid">${guideControls}</div>
+                <div class="guide-editor" data-side="${sideKey}">
                   <div class="guide-actions">
-                    <button type="button" class="apply-guides">Apply and recalculate grade</button>
-                    <button type="button" class="reset-guides">Use automatic detection</button>
+                    <button type="button" class="enable-guides">${report.centering.manual_override ? "Edit applied guides" : "Enable line adjustment"}</button>
+                    ${report.centering.manual_override ? `<button type="button" class="reset-guides">Use automatic detection</button>` : ""}
                   </div>
-                </details>
+                  <p>Adjustment mode must be enabled before the green lines can be dragged directly on the card.</p>
+                </div>
                 <div class="signals">
                   <div class="signal"><b>Corner evidence</b><span>Pale/color-loss pixels: ${cornerText}. Lower is better.</span></div>
                   <div class="signal"><b>Edge evidence</b><span>Confirmed pale/whitening pixels: ${edgeText}. Blur lowers confidence, not the edge score.</span></div>
@@ -291,23 +314,62 @@
               </div>
             </article>`;
         }).join("");
-        document.querySelectorAll(".guide-control input").forEach(input => {
-          input.addEventListener("input", () => {
-            input.parentElement.querySelector("output").textContent =
-              `${Number(input.value).toFixed(1)} mm`;
+        document.querySelectorAll(".enable-guides").forEach(button => {
+          button.addEventListener("click", () => {
+            const card = button.closest(".evidence-card");
+            card.querySelector(".annotated-image").hidden = true;
+            card.querySelector(".guide-canvas").hidden = false;
+            card.querySelector(".guide-apply-actions").hidden = false;
+          });
+        });
+        document.querySelectorAll(".drag-guide").forEach(line => {
+          line.addEventListener("pointerdown", event => {
+            line.setPointerCapture(event.pointerId);
+          });
+          line.addEventListener("pointermove", event => {
+            if (!line.hasPointerCapture(event.pointerId)) return;
+            const canvas = line.closest(".guide-canvas");
+            const bounds = canvas.getBoundingClientRect();
+            const name = line.dataset.guide;
+            const vertical = line.classList.contains("vertical");
+            const physicalSize = vertical ? 63.5 : 88.9;
+            const totalPixels = vertical ? bounds.width : bounds.height;
+            const pointer = vertical
+              ? event.clientX - bounds.left
+              : event.clientY - bounds.top;
+            const minimum = 0.2 / physicalSize * totalPixels;
+            const maximum = 5.0 / physicalSize * totalPixels;
+            const fromFarEdge = name === "right" || name === "bottom";
+            const coordinate = fromFarEdge
+              ? Math.max(totalPixels - maximum, Math.min(totalPixels - minimum, pointer))
+              : Math.max(minimum, Math.min(maximum, pointer));
+            const fraction = coordinate / totalPixels;
+            const millimeters = (fromFarEdge ? 1 - fraction : fraction) * physicalSize;
+            line.style[vertical ? "left" : "top"] = `${fraction * 100}%`;
+            line.dataset.mm = millimeters.toFixed(1);
+            line.querySelector("span").textContent =
+              `${name[0].toUpperCase()} ${millimeters.toFixed(1)} mm`;
           });
         });
         document.querySelectorAll(".apply-guides").forEach(button => {
           button.addEventListener("click", () => {
-            const editor = button.closest(".guide-editor");
-            const side = editor.dataset.side;
+            const canvas = button.closest(".measurement-stage").querySelector(".guide-canvas");
+            const side = canvas.dataset.side;
             manualGuides[side] = Object.fromEntries(
-              [...editor.querySelectorAll("[data-guide]")].map(input => [
-                input.dataset.guide,
-                input.value,
+              [...canvas.querySelectorAll("[data-guide]")].map(line => [
+                line.dataset.guide,
+                line.dataset.mm,
               ])
             );
             scan.click();
+          });
+        });
+        document.querySelectorAll(".cancel-guides").forEach(button => {
+          button.addEventListener("click", () => {
+            const card = button.closest(".evidence-card");
+            card.querySelector(".annotated-image").hidden = false;
+            card.querySelector(".guide-canvas").hidden = true;
+            card.querySelector(".guide-apply-actions").hidden = true;
           });
         });
         document.querySelectorAll(".reset-guides").forEach(button => {

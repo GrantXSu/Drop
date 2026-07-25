@@ -133,11 +133,11 @@ plain, contrasting background. Use diffuse light, keep all four corners
 visible, and include both sides. The first run uses a clearly labeled,
 low-confidence visual heuristic.
 
-If an automatic centering guide follows text or a content bar, expand
-**Adjust centering guides manually** in the inspection report. Set the four
-visible border widths from 0.2–5.0 mm and choose **Apply and recalculate grade**.
-The updated guides, ratios, centering subgrade, and overall estimate are then
-recomputed from those explicit measurements.
+If an automatic centering guide follows text or a content bar, choose
+**Enable line adjustment** in the inspection report. Drag the four green lines
+directly on the normalized card image, then choose **Apply and recalculate**.
+Adjustment mode is off by default. The updated guides, ratios, centering
+subgrade, and overall estimate are recomputed from the explicit line positions.
 
 For a single development command that opens the browser and reloads when source
 files change:
