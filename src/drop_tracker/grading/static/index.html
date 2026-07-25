@@ -113,7 +113,15 @@
     .camera-view { position:relative; aspect-ratio:3/4; overflow:hidden; background:#090b11; }
     .camera-view video { width:100%; height:100%; object-fit:cover; }
     .camera-frame { position:absolute; top:50%; left:50%; width:min(72%,390px); aspect-ratio:5/7; transform:translate(-50%,-50%); border:3px solid #50ff72; border-radius:4%; box-shadow:0 0 0 999px #0004; pointer-events:none; }
+    .camera-captures { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:10px 12px 0; }
+    .camera-capture-slot { display:grid; grid-template-columns:44px 1fr; gap:8px; align-items:center; min-height:58px; padding:6px; border:1px dashed #b9b7b1; border-radius:10px; color:var(--muted); background:#f5f3ed; }
+    .camera-capture-slot img { display:none; width:44px; height:58px; object-fit:cover; border-radius:5px; }
+    .camera-capture-slot.ready { color:#266142; border-style:solid; border-color:#67bd86; background:#e9f8ee; }
+    .camera-capture-slot.ready img { display:block; }
+    .camera-capture-slot b,.camera-capture-slot span { display:block; }
+    .camera-capture-slot span { font-size:11px; }
     .camera-controls { display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:12px; }
+    .camera-controls .captured { color:#16482b; background:#9ce5b4; }
     .camera-controls .camera-analyze { grid-column:1/-1; }
     .camera-status { grid-column:1/-1; min-height:22px; margin:0; color:var(--muted); text-align:center; font-size:13px; }
     .pricing-modal { position:fixed; z-index:60; inset:0; display:grid; place-items:center; padding:16px; background:#060913d9; }
@@ -367,6 +375,16 @@
         <video id="camera-video" autoplay playsinline muted></video>
         <div class="camera-frame" aria-hidden="true"></div>
       </div>
+      <div class="camera-captures" aria-live="polite">
+        <div class="camera-capture-slot" id="camera-front-slot">
+          <img alt="Captured card front preview">
+          <div><b>Front slot</b><span>Not captured</span></div>
+        </div>
+        <div class="camera-capture-slot" id="camera-back-slot">
+          <img alt="Captured card back preview">
+          <div><b>Back slot</b><span>Not captured</span></div>
+        </div>
+      </div>
       <div class="camera-controls">
         <button id="capture-front" type="button">Capture front</button>
         <button id="capture-back" type="button">Capture back</button>
@@ -503,6 +521,7 @@
     function preview(input, container, side) {
       input.addEventListener("change", () => {
         capturedFiles[side] = null;
+        resetCameraSlot(side);
         delete manualGuides[side];
         if (side === "front") {
           selectedCardId = null;
@@ -513,8 +532,12 @@
         if (!input.files[0]) {
           container.classList.remove("has-image");
           meta.style.display = "none";
+          container.querySelector(".tag").textContent =
+            `${side[0].toUpperCase() + side.slice(1)} · ${side === "front" ? "required" : "recommended"}`;
           return;
         }
+        container.querySelector(".tag").textContent =
+          `${side[0].toUpperCase() + side.slice(1)} · selected`;
         const source = URL.createObjectURL(input.files[0]);
         image.src = source;
         const probe = new Image();
@@ -532,6 +555,17 @@
     preview(front, document.querySelector("#front-drop"), "front");
     preview(back, document.querySelector("#back-drop"), "back");
 
+    function resetCameraSlot(side) {
+      const slot = document.querySelector(`#camera-${side}-slot`);
+      slot.classList.remove("ready");
+      slot.querySelector("img").removeAttribute("src");
+      slot.querySelector("span").textContent = "Not captured";
+      const button = document.querySelector(`#capture-${side}`);
+      button.classList.remove("captured");
+      button.textContent = `Capture ${side}`;
+      document.querySelector("#camera-analyze").disabled = !capturedFiles.front;
+    }
+
     function showCapturedPhoto(side, file, source, width, height) {
       capturedFiles[side] = file;
       delete manualGuides[side];
@@ -539,12 +573,21 @@
       if (side === "front") currentScanId = newScanId();
       const container = document.querySelector(`#${side}-drop`);
       container.querySelector("img").src = source;
+      container.querySelector(".tag").textContent =
+        `${side[0].toUpperCase() + side.slice(1)} · camera captured`;
       container.classList.add("has-image");
       const meta = container.querySelector(".photo-meta");
       const lowResolution = Math.min(width, height) < 1000;
       meta.textContent = `${width} × ${height}${lowResolution ? " · low resolution" : " · camera ready"}`;
       meta.classList.toggle("warning", lowResolution);
       meta.style.display = "block";
+      const slot = document.querySelector(`#camera-${side}-slot`);
+      slot.classList.add("ready");
+      slot.querySelector("img").src = source;
+      slot.querySelector("span").textContent = "Ready for analysis";
+      const button = document.querySelector(`#capture-${side}`);
+      button.classList.add("captured");
+      button.textContent = `Retake ${side} ✓`;
     }
 
     function stopCamera() {
@@ -608,7 +651,7 @@
         );
         document.querySelector("#camera-analyze").disabled = !capturedFiles.front;
         cameraStatus.textContent =
-          `${side[0].toUpperCase() + side.slice(1)} captured. ${side === "front" ? "Turn the card over and capture the back." : "Both sides are ready to analyze."}`;
+          `${side[0].toUpperCase() + side.slice(1)} added to the ${side} upload slot. ${side === "front" ? "Turn the card over and capture the back." : "Both sides are ready to analyze."}`;
       }, "image/jpeg", 0.95);
     }
 

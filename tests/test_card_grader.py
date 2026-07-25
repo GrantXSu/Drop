@@ -619,6 +619,8 @@ def test_ui_collapses_detected_findings() -> None:
     assert "Prototype" not in response.text
     assert 'id="camera-mode"' in response.text
     assert 'id="camera-video"' in response.text
+    assert 'id="camera-front-slot"' in response.text
+    assert 'id="camera-back-slot"' in response.text
     assert "Capture front" in response.text
     assert "Analyze captured card" in response.text
     assert "3 card analyses per UTC day" in response.text
