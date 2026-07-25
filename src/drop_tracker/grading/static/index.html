@@ -86,9 +86,17 @@
     .evidence-copy h3 { margin:0 0 12px; font-size:22px; }
     .measurements { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:15px; }
     .measurement { border-radius:999px; padding:6px 10px; background:#edf0fa; font-size:13px; font-weight:750; }
-    .finding { display:grid; grid-template-columns:10px 1fr; gap:10px; margin-top:12px; }
+    .finding { display:grid; grid-template-columns:10px 1fr; gap:10px; width:100%; min-height:0; margin-top:12px; padding:3px; color:var(--ink); background:transparent; text-align:left; }
+    .finding:hover { background:#f2e8e8; }
     .finding-dot { width:10px; height:10px; margin-top:6px; border-radius:50%; background:var(--red); }
     .finding small { display:block; color:var(--muted); }
+    .finding-focus { margin:10px 12px; padding:10px; border:2px solid var(--red); border-radius:12px; background:#fff5f5; }
+    .finding-focus[hidden] { display:none; }
+    .finding-focus img { width:100%; max-height:420px; object-fit:contain; background:#eeeae2; }
+    .finding-focus-copy { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-top:7px; }
+    .finding-focus-copy button { width:auto; min-height:36px; padding:7px 10px; color:var(--ink); background:#e9dede; }
+    .finding-target-flash { animation:finding-flash 1.2s ease-out; }
+    @keyframes finding-flash { 0%,45% { outline:6px solid var(--red); } 100% { outline:0 solid transparent; } }
     .findings-dropdown { margin-top:14px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#faf9f5; }
     .findings-dropdown summary { display:flex; justify-content:space-between; gap:12px; padding:12px 14px; cursor:pointer; font-weight:800; }
     .findings-dropdown summary small { color:var(--muted); font-weight:600; }
@@ -1116,13 +1124,14 @@
                   <small>${severityCounts.high} high · ${severityCounts.medium} medium · ${severityCounts.small} small</small>
                 </summary>
                 <div class="findings-list">
-                  ${report.findings.map(finding => `
-                    <div class="finding">
+                  ${report.findings.map((finding, index) => `
+                    <button class="finding" type="button"
+                      data-finding-side="${report.side}" data-finding-index="${index}">
                       <i class="finding-dot"></i>
                       <span><b>${finding.type} · ${finding.location}</b>
                         <small>${finding.severity} signal — ${finding.evidence}</small>
                       </span>
-                    </div>`).join("")}
+                    </button>`).join("")}
                 </div>
               </details>`
             : `<div class="clear">No localized whitening or glare signals exceeded the detection threshold.</div>`;
@@ -1185,6 +1194,13 @@
                 </div>
               </div>
               <p class="image-caption">Perspective-corrected border measurement</p>
+              <div class="finding-focus" hidden>
+                <img alt="Highlighted close-up of selected finding">
+                <div class="finding-focus-copy">
+                  <span><b></b><small></small></span>
+                  <button class="close-finding-focus" type="button">Close</button>
+                </div>
+              </div>
               <div class="evidence-copy">
                 <h3>${report.side} inspection</h3>
                 <div class="measurements">
@@ -1213,6 +1229,32 @@
               </div>
             </article>`;
         }).join("");
+        document.querySelectorAll(".finding").forEach(button => {
+          button.addEventListener("click", () => {
+            const report = visualReports.find(
+              item => item.side === button.dataset.findingSide
+            );
+            const finding = report.findings[Number(button.dataset.findingIndex)];
+            const card = button.closest(".evidence-card");
+            const focus = card.querySelector(".finding-focus");
+            focus.querySelector("img").src = finding.crop_image || report.card_image;
+            focus.querySelector("b").textContent =
+              `${finding.type} · ${finding.location}`;
+            focus.querySelector("small").textContent =
+              `${finding.severity} signal — ${finding.evidence}`;
+            focus.hidden = false;
+            const annotated = card.querySelector(".annotated-image");
+            annotated.classList.remove("finding-target-flash");
+            void annotated.offsetWidth;
+            annotated.classList.add("finding-target-flash");
+            focus.scrollIntoView({ behavior:"smooth", block:"center" });
+          });
+        });
+        document.querySelectorAll(".close-finding-focus").forEach(button => {
+          button.addEventListener("click", () => {
+            button.closest(".finding-focus").hidden = true;
+          });
+        });
         document.querySelectorAll(".enable-boundary").forEach(button => {
           button.addEventListener("click", () => {
             const card = button.closest(".evidence-card");

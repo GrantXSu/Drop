@@ -101,6 +101,35 @@ def _visual_report(side: str, analysis: CardAnalysis) -> dict:
         ).decode("ascii")
 
     centering = analysis.diagnostics["centering"]
+    finding_payloads = []
+    for finding in analysis.diagnostics["defects"]:
+        item = dict(finding)
+        x1, y1, x2, y2 = (int(value) for value in finding["bbox"])
+        padding = max(24, round(min(analysis.image.shape[:2]) * 0.045))
+        crop_x1 = max(0, x1 - padding)
+        crop_y1 = max(0, y1 - padding)
+        crop_x2 = min(analysis.image.shape[1], x2 + padding)
+        crop_y2 = min(analysis.image.shape[0], y2 + padding)
+        crop = analysis.image[crop_y1:crop_y2, crop_x1:crop_x2].copy()
+        if crop.size:
+            cv2.rectangle(
+                crop,
+                (x1 - crop_x1, y1 - crop_y1),
+                (x2 - crop_x1, y2 - crop_y1),
+                (65, 75, 240),
+                3,
+            )
+            if max(crop.shape[:2]) < 420:
+                scale = 420.0 / max(crop.shape[:2])
+                crop = cv2.resize(
+                    crop,
+                    None,
+                    fx=scale,
+                    fy=scale,
+                    interpolation=cv2.INTER_NEAREST,
+                )
+            item["crop_image"] = encode(crop)
+        finding_payloads.append(item)
     return {
         "side": side,
         "source_image": encode(source_boundary_image(analysis)),
@@ -130,7 +159,7 @@ def _visual_report(side: str, analysis: CardAnalysis) -> dict:
             "retest_recommended": centering.get("retest_recommended", False),
             "manual_override": centering.get("manual_override", False),
         },
-        "findings": analysis.diagnostics["defects"],
+        "findings": finding_payloads,
         "condition_signals": analysis.diagnostics["condition_signals"],
     }
 

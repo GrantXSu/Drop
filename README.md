@@ -360,6 +360,12 @@ Condition curves are calibrated so moderate findings reduce corners by up to
 and surface by `20 × weighted-damage`. Severe normalized damage still reaches a
 1.0 subgrade, while small and medium findings no longer receive severe-wear
 penalties.
+When the lowest physical category is below 5.0, the overall estimate can exceed
+it by at most 0.5; from 5.0–6.9 the allowance is 1.0; otherwise it is 1.5.
+
+Every finding in the detailed report is clickable. Selecting one scrolls to a
+highlighted close-up crop of its exact bounding box, with the finding type,
+location, severity, and evidence shown beside it.
 
 ## Run continuously on Render
 

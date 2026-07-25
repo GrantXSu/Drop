@@ -78,6 +78,19 @@ def _apply_centering_cap(
     return min(grade, centering_score + 0.5)
 
 
+def _apply_physical_damage_cap(
+    grade: float, physical_scores: Tuple[float, ...]
+) -> float:
+    lowest = min(physical_scores)
+    if lowest < 5.0:
+        allowance = 0.5
+    elif lowest < 7.0:
+        allowance = 1.0
+    else:
+        allowance = 1.5
+    return min(grade, lowest + allowance)
+
+
 def _heuristic_grade(
     front: Dict[str, float], back: Optional[Dict[str, float]]
 ) -> GradePrediction:
@@ -95,7 +108,7 @@ def _heuristic_grade(
     physical_scores = [
         by_name[name] for name in ("corners", "edges", "surface") if name in by_name
     ]
-    grade = min(grade, min(physical_scores) + 1.5)
+    grade = _apply_physical_damage_cap(grade, tuple(physical_scores))
     grade = _apply_centering_cap(grade, front, back)
     grade = float(np.clip(grade, 1.0, 10.0))
     uncertainty = 1.75 if back is None else 1.25
@@ -146,6 +159,14 @@ def predict_grade(
     vector = feature_vector(front, back).reshape(1, -1)
     grade = float(np.clip(model.predict(vector)[0], 1.0, 10.0))
     grade = _apply_centering_cap(grade, front, back)
+    trained_categories = category_subgrades(front, back, model_path)
+    physical_scores = tuple(
+        float(category["score"])
+        for category in trained_categories
+        if category["key"] in {"corners", "edges", "surface"}
+        and category["score"] is not None
+    )
+    grade = _apply_physical_damage_cap(grade, physical_scores)
     validation_mae = float(target_metrics.get("validation_mae", 1.5))
     sample_count = int(target_metrics.get("samples", artifact.get("sample_count", 0)))
     uncertainty = max(0.6, min(2.5, validation_mae * 1.65))

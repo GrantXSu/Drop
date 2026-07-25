@@ -272,6 +272,11 @@ def test_back_analysis_marks_non_blue_corner_whitening() -> None:
         finding["type"] == "Corner whitening"
         for finding in analysis.diagnostics["defects"]
     )
+    report = web_module._visual_report("Back", analysis)
+    assert all(
+        finding["crop_image"].startswith("data:image/jpeg;base64,")
+        for finding in report["findings"]
+    )
 
 
 def test_back_whitening_ignores_smooth_glare_but_finds_small_chip() -> None:
@@ -872,6 +877,8 @@ def test_ui_collapses_detected_findings() -> None:
     assert "height:min(900px,calc(100dvh - 24px))" in response.text
     assert "Adjust physical card corners" in response.text
     assert 'class="boundary-handle"' in response.text
+    assert 'class="finding-focus"' in response.text
+    assert "data-finding-index" in response.text
     assert "3 card analyses per UTC day" in response.text
     assert "$9.99" in response.text
     assert "$59.99" in response.text
@@ -980,6 +987,25 @@ def test_severe_condition_signals_still_reach_low_subgrades() -> None:
     assert categories["corners"]["score"] == 1.0
     assert categories["edges"]["score"] == 1.0
     assert categories["surface"]["score"] == 1.0
+
+
+def test_sub_five_physical_subgrade_caps_overall_with_half_point(
+    tmp_path: Path,
+) -> None:
+    damaged = {name: 0.0 for name in BASE_FEATURES}
+    damaged.update(
+        {
+            "centering_x": 1.0,
+            "centering_y": 1.0,
+            "corner_pale_max": 0.3375,
+            "corner_defect_load": 1.0,
+        }
+    )
+    corner_score = category_subgrades(damaged, damaged)[1]["score"]
+    prediction = predict_grade(damaged, damaged, tmp_path / "missing.joblib")
+
+    assert corner_score == 4.3
+    assert prediction.grade <= 4.8
 
 
 def test_many_small_surface_marks_do_not_collapse_surface_grade() -> None:
