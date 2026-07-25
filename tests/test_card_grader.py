@@ -8,7 +8,12 @@ pytest.importorskip("sklearn")
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from drop_tracker.grading.catalog import _connect, _reference_profile, identify_card
+from drop_tracker.grading.catalog import (
+    _connect,
+    _reference_profile,
+    apply_reference_baseline,
+    identify_card,
+)
 from drop_tracker.grading.features import (
     CARD_HEIGHT,
     CARD_WIDTH,
@@ -20,7 +25,9 @@ from drop_tracker.grading.features import (
 )
 from drop_tracker.grading.model import (
     BASE_FEATURES,
+    category_subgrades,
     centering_standards,
+    feature_vector,
     predict_grade,
 )
 from drop_tracker.grading.web import app
@@ -139,9 +146,39 @@ def test_front_bottom_centering_ignores_copyright_text() -> None:
 
     centering = _border_measurements(card, side="front")
 
-    assert centering["distances"]["bottom"] >= 35
-    assert centering["layout_adjustment"] == "silver border copyright allowance"
-    assert centering["balance_y"] > 0.90
+    assert 35 <= centering["distances"]["bottom"] <= 45
+    assert centering["layout_adjustment"] is None
+
+
+def test_photo_quality_does_not_create_hidden_damage_penalties() -> None:
+    clean = {name: 0.0 for name in BASE_FEATURES}
+    clean.update(
+        {
+            "centering_x": 1.0,
+            "centering_y": 1.0,
+            "surface_glare": 0.30,
+            "surface_dark": 0.25,
+            "sharpness": 0.01,
+        }
+    )
+
+    categories = {
+        category["key"]: category
+        for category in category_subgrades(clean, clean)
+    }
+
+    assert categories["corners"]["score"] == 10.0
+    assert categories["edges"]["score"] == 10.0
+    assert categories["surface"]["score"] == 10.0
+    assert "confidence" in categories["surface"]["detail"]
+    pristine_photo = dict(clean)
+    pristine_photo.update(
+        {"surface_glare": 0.0, "surface_dark": 0.0, "sharpness": 1.0}
+    )
+    assert np.array_equal(
+        feature_vector(clean, clean),
+        feature_vector(pristine_photo, pristine_photo),
+    )
 
 
 def test_back_analysis_isolates_card_before_measuring_centering() -> None:
@@ -157,6 +194,9 @@ def test_back_analysis_isolates_card_before_measuring_centering() -> None:
     assert centering["distances"]["right"] == CARD_WIDTH - 1 - centering["guides"]["right"]
     assert centering["distance_mm"]["left"] > 0
     assert centering["card_dimensions"] == {"width": CARD_WIDTH, "height": CARD_HEIGHT}
+    assert analysis.diagnostics["defects"] == []
+    assert analysis.features["edge_pale"] == 0.0
+    assert analysis.features["corner_pale_max"] == 0.0
     assert annotated_image(analysis).shape[:2] == (CARD_HEIGHT + 180, CARD_WIDTH + 180)
     assert source_boundary_image(analysis).shape[0] > analysis.source_image.shape[0]
 
@@ -258,6 +298,29 @@ def test_catalog_identifies_matching_reference(tmp_path: Path) -> None:
 
     assert matches[0]["id"] == "sv-test-1"
     assert matches[0]["confidence"] == 1.0
+
+
+def test_catalog_reference_calibrates_layout_without_moving_guides() -> None:
+    analysis = analyze_image(card_image_bytes(), side="front")
+    original_guides = dict(analysis.diagnostics["centering"]["guides"])
+    expected = dict(analysis.diagnostics["centering"]["distances"])
+
+    apply_reference_baseline(
+        analysis,
+        {
+            "id": "reference-card",
+            "confidence": 1.0,
+            "reference_features": {"centering_distances": expected},
+        },
+    )
+
+    centering = analysis.diagnostics["centering"]
+    assert centering["guides"] == original_guides
+    assert centering["left_percent"] == 50
+    assert centering["right_percent"] == 50
+    assert centering["top_percent"] == 50
+    assert centering["bottom_percent"] == 50
+    assert centering["reference_calibrated"]
 
 
 def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:

@@ -147,9 +147,9 @@ The command stores card names, sets, numbers, reference URLs, visual
 fingerprints, and clean-card condition baselines in
 `data/grading/card_catalog.sqlite`. It does not retain copies of the reference
 images. Re-run it to add newly released sets. Identification is visual and may
-confuse parallel, reverse-holo, or similarly illustrated printings; the report
-shows confidence and only applies a clean-card whitening baseline to confident
-matches.
+confuse parallel, reverse-holo, or similarly illustrated printings. For
+confident matches, the clean reference layout calibrates expected print
+placement without moving the detected border guides.
 
 ### Train it with verified samples
 
@@ -169,11 +169,14 @@ drop-train-grader path/to/grading_manifest.csv
 drop-card-grader
 ```
 
-The trainer rejects bad images, holds out entire source cards, reports mean
-absolute error and the percentage of predictions within one grade, and saves
-`models/card_grader.joblib`. It requires at least 100 valid samples from 80
-distinct cards across four grade bands. A production-quality model still needs
-hundreds or thousands of diverse, correctly labeled front-and-back examples.
+The trainer rejects blurry, overexposed, underexposed, and glare-obscured
+images, holds out entire source cards, reports mean absolute error and the
+percentage of predictions within one grade, and saves
+`models/card_grader.joblib`. Capture-quality signals affect confidence but are
+not model inputs or physical-damage penalties. It requires at least 100 valid
+samples from 80 distinct cards across four grade bands. A production-quality
+model still needs hundreds or thousands of diverse, correctly labeled
+front-and-back examples.
 
 Publicly viewable PSA grades and images are not automatically licensed for
 bulk scraping or model training. The project therefore imports an explicit

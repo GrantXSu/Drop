@@ -22,9 +22,16 @@ BASE_FEATURES = (
     "exposure",
     "contrast",
 )
+MODEL_FEATURES = (
+    "centering_x",
+    "centering_y",
+    "edge_pale",
+    "corner_pale_mean",
+    "corner_pale_max",
+)
 SIDES = ("front", "back")
 FEATURE_NAMES = tuple(
-    f"{side}_{feature}" for side in SIDES for feature in BASE_FEATURES
+    f"{side}_{feature}" for side in SIDES for feature in MODEL_FEATURES
 ) + ("has_back",)
 DEFAULT_MODEL_PATH = Path("models/card_grader.joblib")
 
@@ -46,12 +53,12 @@ class GradePrediction:
 def feature_vector(
     front: Dict[str, float], back: Optional[Dict[str, float]]
 ) -> np.ndarray:
-    values = [front[name] for name in BASE_FEATURES]
+    values = [front[name] for name in MODEL_FEATURES]
     if back is None:
-        values.extend([0.0] * len(BASE_FEATURES))
+        values.extend([0.0] * len(MODEL_FEATURES))
         values.append(0.0)
     else:
-        values.extend(back[name] for name in BASE_FEATURES)
+        values.extend(back[name] for name in MODEL_FEATURES)
         values.append(1.0)
     return np.asarray(values, dtype=np.float64)
 
@@ -118,7 +125,7 @@ def predict_grade(
         low=round(max(1.0, grade - uncertainty), 1),
         high=round(min(10.0, grade + uncertainty), 1),
         confidence=confidence,
-        method="trained public-sample model",
+        method="trained verified-sample model",
         model_samples=sample_count,
         caveat=(
             "Unofficial estimate, not a PSA grade. Confidence reflects held-out "
@@ -263,32 +270,14 @@ def category_subgrades(
     standards = centering_standards(front, back)
     edge = max(side["edge_pale"] for side in sides)
     corner = max(side["corner_pale_max"] for side in sides)
-    glare = max(side["surface_glare"] for side in sides)
-    dark = max(side["surface_dark"] for side in sides)
-    sharpness = min(side["sharpness"] for side in sides)
-
     scores = {
         "centering": float(standards["psa"]),
-        "corners": float(np.clip(10.0 - 8.0 * corner, 1.0, 10.0)),
-        "edges": float(
-            np.clip(
-                10.0
-                - 7.0 * edge
-                - 1.0 * max(0.0, 0.20 - sharpness) / 0.20,
-                1.0,
-                10.0,
-            )
-        ),
-        "surface": float(
-            np.clip(
-                10.0
-                - 10.0 * glare
-                - 5.0 * dark
-                - 10.0 * max(0.0, 0.12 - sharpness),
-                1.0,
-                10.0,
-            )
-        ),
+        "corners": float(np.clip(10.0 - 20.0 * corner, 1.0, 10.0)),
+        "edges": float(np.clip(10.0 - 25.0 * edge, 1.0, 10.0)),
+        # Glare, darkness, and blur affect confidence, not card condition.
+        # Surface remains provisional until a localized scratch/dent detector
+        # can provide evidence that is also displayed in the report.
+        "surface": 10.0,
     }
     scores = {name: round(value, 1) for name, value in scores.items()}
     return (
@@ -308,20 +297,23 @@ def category_subgrades(
             "name": "Corners",
             "score": scores["corners"],
             "condition": _condition(scores["corners"]),
-            "detail": "Checks all eight visible corners for whitening and color loss.",
+            "detail": "Uses only localized corner damage shown in the visual report.",
         },
         {
             "key": "edges",
             "name": "Edges",
             "score": scores["edges"],
             "condition": _condition(scores["edges"]),
-            "detail": "Checks both sides for whitening, chips, and edge color loss.",
+            "detail": "Uses only localized edge damage shown in the visual report.",
         },
         {
             "key": "surface",
             "name": "Surface",
             "score": scores["surface"],
             "condition": _condition(scores["surface"]),
-            "detail": "Scores visible surface quality after glare, darkness, and blur checks.",
+            "detail": (
+                "Provisional: image blur and glare lower confidence but are not "
+                "treated as physical damage."
+            ),
         },
     )

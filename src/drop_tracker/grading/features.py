@@ -414,7 +414,7 @@ def _border_measurements(
     x_profile = edges[y1:y2].mean(axis=0) / 255.0
     y_profile = edges[:, x1:x2].mean(axis=1) / 255.0
 
-    def guide(profile: np.ndarray, size: int, prefer_strongest: bool = False) -> int:
+    def guide(profile: np.ndarray, size: int) -> int:
         # Pokémon's printable outer border is narrow. Restricting the search
         # prevents artwork frames, text rules, and the Poké Ball from being
         # mistaken for centering boundaries.
@@ -423,11 +423,6 @@ def _border_measurements(
         search = smoothed[start:stop]
         if search.size == 0 or float(search.max()) < 0.035:
             return int(size * 0.04)
-        if prefer_strongest:
-            # Front copyright and set text can sit closer to the cut edge than
-            # the frame. The true frame crosses almost the entire card, so its
-            # aggregate edge profile is stronger than individual glyphs.
-            return start + int(np.argmax(search))
         threshold = max(0.035, float(search.max()) * 0.45)
         sustained = np.convolve(
             (search >= threshold).astype(np.uint8), np.ones(3, dtype=np.uint8), mode="same"
@@ -435,11 +430,46 @@ def _border_measurements(
         matches = np.flatnonzero(sustained >= 2)
         return start + int(matches[0]) if matches.size else start + int(np.argmax(search))
 
-    prefer_strongest = side == "front"
-    left = guide(x_profile, width, prefer_strongest)
-    right_distance = guide(x_profile[::-1], width, prefer_strongest)
-    top = guide(y_profile, height, prefer_strongest)
-    bottom_distance = guide(y_profile[::-1], height, prefer_strongest)
+    def full_span_guide(axis: int, reverse: bool) -> int:
+        """Select a continuous frame edge instead of nearby text or artwork."""
+        size = height if axis == 0 else width
+        span_start, span_stop = (x1, x2) if axis == 0 else (y1, y2)
+        start, stop = int(size * 0.018), int(size * 0.095)
+        scores = []
+        for distance in range(start, stop):
+            coordinate = size - 1 - distance if reverse else distance
+            lower = max(0, coordinate - 2)
+            upper = min(size, coordinate + 3)
+            band = (
+                edges[lower:upper, span_start:span_stop]
+                if axis == 0
+                else edges[span_start:span_stop, lower:upper].T
+            )
+            support = (band.max(axis=0) > 0).astype(np.float32)
+            end_width = max(8, round(support.size * 0.16))
+            end_support = min(
+                float(support[:end_width].mean()),
+                float(support[-end_width:].mean()),
+            )
+            scores.append(0.75 * end_support + 0.25 * float(support.mean()))
+        if not scores:
+            return int(size * 0.04)
+        smoothed = np.convolve(np.asarray(scores), np.ones(3) / 3.0, mode="same")
+        if float(smoothed.max()) < 0.04:
+            profile = y_profile if axis == 0 else x_profile
+            return guide(profile[::-1] if reverse else profile, size)
+        return start + int(np.argmax(smoothed))
+
+    if side == "front":
+        left = full_span_guide(axis=1, reverse=False)
+        right_distance = full_span_guide(axis=1, reverse=True)
+        top = full_span_guide(axis=0, reverse=False)
+        bottom_distance = full_span_guide(axis=0, reverse=True)
+    else:
+        left = guide(x_profile, width)
+        right_distance = guide(x_profile[::-1], width)
+        top = guide(y_profile, height)
+        bottom_distance = guide(y_profile[::-1], height)
     right = width - 1 - right_distance
     bottom = height - 1 - bottom_distance
 
@@ -447,54 +477,10 @@ def _border_measurements(
     right_border = max(width - 1 - right, 1)
     top_border = max(top, 1)
     bottom_border = max(height - 1 - bottom, 1)
-    if side == "front":
-        # Front artwork and text boxes create strong horizontal rectangles far
-        # inside the card. The true printed frame has approximately uniform
-        # physical thickness after aspect-correct normalization, so use the
-        # side borders as the anchor and reject distant horizontal artwork.
-        side_anchor = max(1, round((left_border + right_border) / 2))
-        lower, upper = side_anchor * 0.55, side_anchor * 1.80
-        if not lower <= top_border <= upper:
-            top_border = side_anchor
-            top = top_border
-        if not lower <= bottom_border <= upper:
-            bottom_border = side_anchor
-            bottom = height - 1 - bottom_border
-    effective_bottom = float(bottom_border)
-    layout_adjustment = None
-    if side == "front":
-        hsv = cv2.cvtColor(card, cv2.COLOR_BGR2HSV)
-        ring_width = max(8, round(width * 0.035))
-        border_pixels = np.concatenate(
-            (
-                hsv[:ring_width].reshape(-1, 3),
-                hsv[-ring_width:].reshape(-1, 3),
-                hsv[:, :ring_width].reshape(-1, 3),
-                hsv[:, -ring_width:].reshape(-1, 3),
-            )
-        )
-        silver_fraction = float(
-            ((border_pixels[:, 1] < 80) & (border_pixels[:, 2] > 105)).mean()
-        )
-        copyright_band = gray[
-            min(height - 1, bottom + 2) : height - 3,
-            int(width * 0.12) : int(width * 0.88),
-        ]
-        dark_text_fraction = (
-            float((copyright_band < 100).mean()) if copyright_band.size else 0.0
-        )
-        if silver_fraction > 0.38 and dark_text_fraction > 0.008:
-            # Modern silver-border layouts reserve a standardized extra strip
-            # below the frame for copyright text. Compare print shift against
-            # that expected 1.35x bottom margin instead of treating it as an
-            # off-center cut.
-            effective_bottom = bottom_border / 1.35
-            layout_adjustment = "silver border copyright allowance"
-
     horizontal = min(left_border, right_border) / max(left_border, right_border)
-    vertical = min(top_border, effective_bottom) / max(top_border, effective_bottom)
+    vertical = min(top_border, bottom_border) / max(top_border, bottom_border)
     horizontal_total = left_border + right_border
-    vertical_total = top_border + effective_bottom
+    vertical_total = top_border + bottom_border
     return {
         "balance_x": float(horizontal),
         "balance_y": float(vertical),
@@ -511,21 +497,17 @@ def _border_measurements(
             "top": round(top_border / height * 88.9, 1),
             "bottom": round(bottom_border / height * 88.9, 1),
         },
-        "adjusted_distance_mm": {
-            "bottom": round(effective_bottom / height * 88.9, 1),
-        }
-        if layout_adjustment
-        else None,
-        "layout_adjustment": layout_adjustment,
+        "adjusted_distance_mm": None,
+        "layout_adjustment": None,
         "card_dimensions": {"width": width, "height": height},
         "offset": {
             "horizontal": round((left_border - right_border) / 2.0, 1),
-            "vertical": round((top_border - effective_bottom) / 2.0, 1),
+            "vertical": round((top_border - bottom_border) / 2.0, 1),
         },
         "left_percent": round(left_border / horizontal_total * 100),
         "right_percent": round(right_border / horizontal_total * 100),
         "top_percent": round(top_border / vertical_total * 100),
-        "bottom_percent": round(effective_bottom / vertical_total * 100),
+        "bottom_percent": round(bottom_border / vertical_total * 100),
     }
 
 
@@ -581,6 +563,13 @@ def _region_stats(
         "contrast": float(np.clip(gray.std() / 80.0, 0.0, 1.0)),
     }
     defects = []
+    confirmed_edge_signals = {name: 0.0 for name in edge_regions}
+    confirmed_corner_signals = {
+        "top-left": 0.0,
+        "top-right": 0.0,
+        "bottom-left": 0.0,
+        "bottom-right": 0.0,
+    }
     edge_baseline = float(np.median(list(edge_pale.values())))
     if side == "back":
         corner_radius = max(18, round(min(height, width) * 0.055))
@@ -620,6 +609,28 @@ def _region_stats(
         for area, x, y, box_width, box_height in sorted(
             components, reverse=True
         )[:60]:
+            center_x = x + box_width / 2.0
+            center_y = y + box_height / 2.0
+            nearest_edge = min(
+                (
+                    (center_y, "top edge"),
+                    (width - center_x, "right edge"),
+                    (height - center_y, "bottom edge"),
+                    (center_x, "left edge"),
+                ),
+                key=lambda item: item[0],
+            )[1]
+            edge_length = width if nearest_edge in {"top edge", "bottom edge"} else height
+            confirmed_edge_signals[nearest_edge] += area / max(1, strip * edge_length)
+            horizontal_corner = "left" if center_x < width / 2 else "right"
+            vertical_corner = "top" if center_y < height / 2 else "bottom"
+            if min(center_x, width - center_x) < corner_radius and min(
+                center_y, height - center_y
+            ) < corner_radius:
+                corner_name = f"{vertical_corner}-{horizontal_corner}"
+                confirmed_corner_signals[corner_name] += area / max(
+                    1, strip * corner_radius
+                )
             padding = 5
             defects.append(
                 {
@@ -649,6 +660,7 @@ def _region_stats(
             max(0.16, edge_baseline * 1.35)
         )
         if amount > threshold:
+            confirmed_edge_signals[name] = amount
             defects.append(
                 {
                     "type": "Edge whitening signal",
@@ -659,25 +671,25 @@ def _region_stats(
                 }
             )
 
+    confirmed_edges = list(confirmed_edge_signals.values())
+    confirmed_corners = list(confirmed_corner_signals.values())
+    features["edge_pale"] = float(np.clip(max(confirmed_edges), 0.0, 1.0))
+    features["corner_pale_mean"] = float(
+        np.clip(np.mean(confirmed_corners), 0.0, 1.0)
+    )
+    features["corner_pale_max"] = float(np.clip(max(confirmed_corners), 0.0, 1.0))
+
     diagnostics = {
         "centering": centering,
         "defects": defects,
         "condition_signals": {
             "corners": {
                 name: round(amount * 100, 1)
-                for name, amount in zip(
-                    (
-                        "top-left",
-                        "top-right",
-                        "bottom-left",
-                        "bottom-right",
-                    ),
-                    corner_pale,
-                )
+                for name, amount in confirmed_corner_signals.items()
             },
             "edges": {
                 name: round(amount * 100, 1)
-                for name, amount in edge_pale.items()
+                for name, amount in confirmed_edge_signals.items()
             },
             "surface": {
                 "glare_percent": round(float(glare.mean()) * 100, 1),

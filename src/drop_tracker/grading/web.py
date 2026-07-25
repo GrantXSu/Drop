@@ -60,6 +60,8 @@ def _visual_report(side: str, analysis: CardAnalysis) -> dict:
             "distance_mm": centering["distance_mm"],
             "card_dimensions": centering["card_dimensions"],
             "offset": centering["offset"],
+            "reference_calibrated": centering.get("reference_calibrated", False),
+            "raw_percent": centering.get("raw_percent"),
         },
         "findings": analysis.diagnostics["defects"],
         "condition_signals": analysis.diagnostics["condition_signals"],

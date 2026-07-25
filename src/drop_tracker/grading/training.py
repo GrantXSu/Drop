@@ -71,6 +71,17 @@ def _validate_row(row: Dict[str, str], row_number: int) -> float:
     return grade
 
 
+def _quality_issue(features: Dict[str, float], side: str) -> Optional[str]:
+    """Reject photos whose capture quality could be learned as card damage."""
+    if features["sharpness"] < 0.08:
+        return f"{side} image is too blurry"
+    if features["surface_glare"] > 0.08:
+        return f"{side} image has excessive glare"
+    if not 0.20 <= features["exposure"] <= 0.85:
+        return f"{side} image exposure is unsuitable"
+    return None
+
+
 def train(
     manifest_path: Path,
     output_path: Path = DEFAULT_MODEL_PATH,
@@ -96,6 +107,9 @@ def train(
                     _read_image(row["front"].strip(), manifest_path.parent),
                     side="front",
                 ).features
+                issue = _quality_issue(front, "front")
+                if issue:
+                    raise ValueError(issue)
                 back_reference = row.get("back", "").strip()
                 back = (
                     analyze_image(
@@ -104,6 +118,10 @@ def train(
                     if back_reference
                     else None
                 )
+                if back:
+                    issue = _quality_issue(back, "back")
+                    if issue:
+                        raise ValueError(issue)
                 vectors.append(feature_vector(front, back))
                 grades.append(grade)
                 groups.append(row["source_url"].strip())
@@ -142,6 +160,11 @@ def train(
         "sample_count": len(vectors),
         "validation_mae": validation_mae,
         "validation_within_one": within_one,
+        "grade_distribution": {
+            str(grade): int(np.sum(np.rint(targets) == grade))
+            for grade in sorted(set(np.rint(targets).astype(int)))
+        },
+        "training_policy": "verified labels; capture-quality gated; grouped holdout",
         "manifest": str(manifest_path),
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)

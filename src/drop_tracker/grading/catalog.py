@@ -106,6 +106,8 @@ def _reference_profile(data: bytes) -> Tuple[str, str, str]:
             "surface_dark",
         )
     }
+    features["centering_distances"] = analysis.diagnostics["centering"]["distances"]
+    features["card_dimensions"] = analysis.diagnostics["centering"]["card_dimensions"]
     return (
         _perceptual_hash(analysis.image),
         json.dumps(_color_signature(analysis.image), separators=(",", ":")),
@@ -220,9 +222,22 @@ def sync_catalog(
                     )
                     if with_images and card.get("image"):
                         existing = connection.execute(
-                            "SELECT perceptual_hash FROM cards WHERE id = ?", (card["id"],)
+                            """
+                            SELECT perceptual_hash, reference_features
+                            FROM cards WHERE id = ?
+                            """,
+                            (card["id"],),
                         ).fetchone()
-                        if not existing or not existing["perceptual_hash"]:
+                        reference = (
+                            json.loads(existing["reference_features"])
+                            if existing and existing["reference_features"]
+                            else {}
+                        )
+                        if (
+                            not existing
+                            or not existing["perceptual_hash"]
+                            or "centering_distances" not in reference
+                        ):
                             cards_to_profile.append(card)
                 connection.commit()
 
@@ -342,16 +357,65 @@ def identify_card(
 def apply_reference_baseline(
     analysis: CardAnalysis, match: Dict[str, object]
 ) -> None:
-    """Subtract legitimate printed pale areas from physical-wear proxies."""
+    """Calibrate print placement against the matched clean card layout."""
     if float(match.get("confidence", 0.0)) < 0.55:
         return
     reference = match.get("reference_features")
     if not reference:
         return
-    for name in ("edge_pale", "corner_pale_mean", "corner_pale_max"):
-        analysis.features[name] = max(
-            0.0, analysis.features[name] - float(reference.get(name, 0.0))
-        )
+    expected = reference.get("centering_distances")
+    if not expected:
+        return
+    centering = analysis.diagnostics["centering"]
+    observed = centering["distances"]
+
+    def calibrated_axis(
+        observed_first: float,
+        observed_second: float,
+        expected_first: float,
+        expected_second: float,
+    ) -> Tuple[float, float, float]:
+        observed_total = max(2.0, observed_first + observed_second)
+        expected_total = max(2.0, expected_first + expected_second)
+        expected_scaled = observed_total * expected_first / expected_total
+        displacement = observed_first - expected_scaled
+        first = float(np.clip(observed_total / 2.0 + displacement, 1.0, observed_total - 1.0))
+        second = observed_total - first
+        balance = min(first, second) / max(first, second)
+        return first, second, balance
+
+    left, right, horizontal = calibrated_axis(
+        observed["left"],
+        observed["right"],
+        expected["left"],
+        expected["right"],
+    )
+    top, bottom, vertical = calibrated_axis(
+        observed["top"],
+        observed["bottom"],
+        expected["top"],
+        expected["bottom"],
+    )
+    centering["raw_percent"] = {
+        "left": centering["left_percent"],
+        "right": centering["right_percent"],
+        "top": centering["top_percent"],
+        "bottom": centering["bottom_percent"],
+    }
+    centering.update(
+        {
+            "left_percent": round(left / (left + right) * 100),
+            "right_percent": round(right / (left + right) * 100),
+            "top_percent": round(top / (top + bottom) * 100),
+            "bottom_percent": round(bottom / (top + bottom) * 100),
+            "balance_x": horizontal,
+            "balance_y": vertical,
+            "reference_calibrated": True,
+            "reference_card_id": match.get("id"),
+        }
+    )
+    analysis.features["centering_x"] = horizontal
+    analysis.features["centering_y"] = vertical
 
 
 def main() -> None:
