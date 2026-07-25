@@ -934,7 +934,7 @@ def _apply_surface_reference(
     ]
     edge_anomalies = [item for item in anomalies if item["category"] == "edge"]
     surface_weight = sum(
-        {"small": 0.10, "medium": 0.50, "high": 2.0}[
+        {"small": 0.10, "medium": 0.50, "high": 3.0}[
             surface_severity(item["area"])
         ]
         for item in surface_anomalies
