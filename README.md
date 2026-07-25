@@ -292,8 +292,10 @@ Beckett-style centering reference; neither is an official grade. The decimal
 estimate is intentionally conservative: a back image is required for 10.0,
 both sides affect the score, and merely landing on PSA's maximum tolerance
 does not guarantee 10.0. Repeated confirmed whitening regions increase edge
-and corner penalties even when each chip is small. Centering contributes 10%
-of the heuristic weighting and does not impose the severe physical-damage cap.
+and corner penalties, but medium findings count one-quarter as much as high
+findings so numerous tiny marks do not score like severe damage. Centering
+contributes 10% of the heuristic weighting and does not impose the severe
+physical-damage cap.
 
 ## Run continuously on Render
 

@@ -315,6 +315,19 @@ def test_smooth_top_border_glare_is_not_whitening() -> None:
     )
 
 
+def test_shadowed_left_edge_whitening_is_detected() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    card[:, :85] = (72, 35, 6)
+    cv2.rectangle(card, (0, 420), (8, 442), (98, 98, 98), -1)
+
+    _, diagnostics = _region_stats(card, side="back")
+
+    assert any(
+        finding["type"] == "Localized whitening" and finding["bbox"][0] < 15
+        for finding in diagnostics["defects"]
+    )
+
+
 def test_back_whitening_finds_wear_on_outermost_corner_pixels() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
     cv2.rectangle(card, (10, 0), (20, 4), (225, 225, 225), -1)
@@ -718,6 +731,22 @@ def test_repeated_whitening_outweighs_centering_in_fallback_grade(
 
     assert whitening_grade < 7.0
     assert centering_grade > whitening_grade
+
+
+def test_medium_whitening_findings_do_not_score_like_high_damage() -> None:
+    features = {name: 0.0 for name in BASE_FEATURES}
+    features.update(
+        {
+            "centering_x": 1.0,
+            "centering_y": 1.0,
+            "edge_pale": 0.03,
+            "edge_defect_load": 19 * 0.25 / 12.0,
+        }
+    )
+
+    edges = category_subgrades(features, features)[2]
+
+    assert 6.5 <= edges["score"] <= 8.0
 
 
 def test_manual_catalog_search_and_confirmation(monkeypatch, tmp_path: Path) -> None:

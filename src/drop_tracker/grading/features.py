@@ -596,6 +596,8 @@ def _region_stats(
     }
     edge_defect_count = 0
     corner_defect_count = 0
+    edge_defect_weight = 0.0
+    corner_defect_weight = 0.0
     surface_anomaly_count = 0
     surface_localized_inspection = False
     edge_baseline = float(np.median(list(edge_pale.values())))
@@ -665,7 +667,9 @@ def _region_stats(
             & ((local_saturation - saturation) > 8)
         )
         localized = (
-            pale & perimeter_mask & (localized_change | strong_local_white)
+            (value > 75)
+            & perimeter_mask
+            & (localized_change | strong_local_white)
         ).astype(np.uint8) * 255
         localized = cv2.morphologyEx(
             localized, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
@@ -704,6 +708,7 @@ def _region_stats(
             edge_length = width if nearest_edge in {"top edge", "bottom edge"} else height
             confirmed_edge_signals[nearest_edge] += area / max(1, strip * edge_length)
             edge_defect_count += 1
+            edge_defect_weight += 1.0 if area >= 60 else 0.25
             horizontal_corner = "left" if center_x < width / 2 else "right"
             vertical_corner = "top" if center_y < height / 2 else "bottom"
             if min(center_x, width - center_x) < corner_radius and min(
@@ -714,6 +719,7 @@ def _region_stats(
                     1, strip * corner_radius
                 )
                 corner_defect_count += 1
+                corner_defect_weight += 1.0 if area >= 60 else 0.25
             padding = 5
             defects.append(
                 {
@@ -731,7 +737,7 @@ def _region_stats(
             )
 
         surface_mask = (
-            pale
+            (value > 75)
             & inner_border_mask
             & (localized_change | strong_local_white)
             & (local_saturation > 70)
@@ -797,6 +803,7 @@ def _region_stats(
         if amount > threshold:
             confirmed_edge_signals[name] = amount
             edge_defect_count += 1
+            edge_defect_weight += 1.0 if amount > 0.40 else 0.25
             defects.append(
                 {
                     "type": "Edge whitening signal",
@@ -815,10 +822,10 @@ def _region_stats(
     )
     features["corner_pale_max"] = float(np.clip(max(confirmed_corners), 0.0, 1.0))
     features["edge_defect_load"] = float(
-        np.clip(edge_defect_count / 12.0, 0.0, 1.0)
+        np.clip(edge_defect_weight / 12.0, 0.0, 1.0)
     )
     features["corner_defect_load"] = float(
-        np.clip(corner_defect_count / 4.0, 0.0, 1.0)
+        np.clip(corner_defect_weight / 4.0, 0.0, 1.0)
     )
 
     diagnostics = {
@@ -836,6 +843,8 @@ def _region_stats(
             "defect_counts": {
                 "edges": edge_defect_count,
                 "corners": corner_defect_count,
+                "edge_weight": round(edge_defect_weight, 2),
+                "corner_weight": round(corner_defect_weight, 2),
             },
             "surface": {
                 "glare_percent": round(float(glare.mean()) * 100, 1),
