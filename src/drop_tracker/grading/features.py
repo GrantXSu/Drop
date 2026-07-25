@@ -531,6 +531,53 @@ def _border_measurements(
     }
 
 
+def _back_card_shape_mask(card: np.ndarray) -> np.ndarray:
+    """Return a filled mask following the back card's rounded physical edge."""
+    height, width = card.shape[:2]
+    corner_radius = max(18, round(min(height, width) * 0.055))
+    fallback = np.zeros((height, width), dtype=np.uint8)
+    cv2.rectangle(
+        fallback,
+        (corner_radius, 0),
+        (width - 1 - corner_radius, height - 1),
+        255,
+        -1,
+    )
+    cv2.rectangle(
+        fallback,
+        (0, corner_radius),
+        (width - 1, height - 1 - corner_radius),
+        255,
+        -1,
+    )
+    for center in (
+        (corner_radius, corner_radius),
+        (width - 1 - corner_radius, corner_radius),
+        (corner_radius, height - 1 - corner_radius),
+        (width - 1 - corner_radius, height - 1 - corner_radius),
+    ):
+        cv2.circle(fallback, center, corner_radius, 255, -1)
+
+    hsv = cv2.cvtColor(card, cv2.COLOR_BGR2HSV)
+    blue_border = cv2.inRange(hsv, (90, 55, 25), (145, 255, 255))
+    blue_border = cv2.morphologyEx(
+        blue_border,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13)),
+    )
+    contours, _ = cv2.findContours(
+        blue_border, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if not contours:
+        return fallback
+    candidate = max(contours, key=cv2.contourArea)
+    if cv2.contourArea(candidate) < width * height * 0.25:
+        return fallback
+    mask = np.zeros((height, width), dtype=np.uint8)
+    cv2.drawContours(mask, [cv2.convexHull(candidate)], -1, 255, -1)
+    return mask
+
+
 def _region_stats(
     card: np.ndarray, side: Optional[str] = None
 ) -> Tuple[Dict[str, float], Dict[str, object]]:
@@ -601,6 +648,7 @@ def _region_stats(
     surface_anomaly_count = 0
     surface_localized_inspection = False
     surface_defect_weight = 0.0
+    card_outline = None
     edge_baseline = float(np.median(list(edge_pale.values())))
 
     def defect_severity(area: int) -> str:
@@ -615,40 +663,16 @@ def _region_stats(
 
     if side == "back":
         corner_radius = max(18, round(min(height, width) * 0.055))
-
-        def fallback_card_mask() -> np.ndarray:
-            mask = np.zeros((height, width), dtype=np.uint8)
-            radius = corner_radius
-            cv2.rectangle(mask, (radius, 0), (width - 1 - radius, height - 1), 255, -1)
-            cv2.rectangle(mask, (0, radius), (width - 1, height - 1 - radius), 255, -1)
-            for center in (
-                (radius, radius),
-                (width - 1 - radius, radius),
-                (radius, height - 1 - radius),
-                (width - 1 - radius, height - 1 - radius),
-            ):
-                cv2.circle(mask, center, radius, 255, -1)
-            return mask
-
-        # Recover the real rounded card silhouette from its blue outer ink.
-        # Closing bridges small white chips so they remain inside the shape.
-        blue_border = cv2.inRange(hsv, (90, 55, 25), (145, 255, 255))
-        blue_border = cv2.morphologyEx(
-            blue_border,
-            cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13)),
+        card_mask = _back_card_shape_mask(card)
+        outline_contours, _ = cv2.findContours(
+            card_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
-        contours, _ = cv2.findContours(
-            blue_border, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        card_mask = fallback_card_mask()
-        if contours:
-            candidate = max(contours, key=cv2.contourArea)
-            if cv2.contourArea(candidate) >= width * height * 0.25:
-                card_mask = np.zeros((height, width), dtype=np.uint8)
-                cv2.drawContours(
-                    card_mask, [cv2.convexHull(candidate)], -1, 255, -1
-                )
+        if outline_contours:
+            outline = max(outline_contours, key=cv2.contourArea)
+            outline = cv2.approxPolyDP(
+                outline, max(1.0, cv2.arcLength(outline, True) * 0.0015), True
+            )
+            card_outline = outline.reshape(-1, 2).astype(int).tolist()
 
         padded_mask = cv2.copyMakeBorder(
             card_mask, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0
@@ -679,7 +703,7 @@ def _region_stats(
             & ((local_saturation - saturation) > 8)
         )
         localized = (
-            (value > 75)
+            (value > 50)
             & perimeter_mask
             & (localized_change | strong_local_white)
         ).astype(np.uint8) * 255
@@ -750,7 +774,7 @@ def _region_stats(
             )
 
         surface_mask = (
-            (value > 75)
+            (value > 50)
             & inner_border_mask
             & (localized_change | strong_local_white)
             & (local_saturation > 70)
@@ -875,6 +899,7 @@ def _region_stats(
         "image_width": width,
         "image_height": height,
         "side": side,
+        "card_outline": card_outline,
     }
     return features, diagnostics
 
@@ -995,14 +1020,23 @@ def annotated_image(analysis: CardAnalysis) -> np.ndarray:
     inner_top = margin + guides["top"]
     inner_bottom = margin + guides["bottom"]
 
-    # White/black outer rectangle is the physical card edge. Green is the
-    # detected meeting point between the dark-blue border and inner design.
-    cv2.rectangle(
-        rendered, (outer_left, outer_top), (outer_right, outer_bottom), black, 5
-    )
-    cv2.rectangle(
-        rendered, (outer_left, outer_top), (outer_right, outer_bottom), cyan, 3
-    )
+    # Cyan follows the rounded physical silhouette when available. Green marks
+    # the detected meeting point between the outer border and inner design.
+    card_outline = analysis.diagnostics.get("card_outline")
+    if card_outline:
+        outline = np.asarray(card_outline, dtype=np.int32)
+        outline[:, 0] += margin
+        outline[:, 1] += margin
+        outline = outline.reshape((-1, 1, 2))
+        cv2.polylines(rendered, [outline], True, black, 5, cv2.LINE_AA)
+        cv2.polylines(rendered, [outline], True, cyan, 3, cv2.LINE_AA)
+    else:
+        cv2.rectangle(
+            rendered, (outer_left, outer_top), (outer_right, outer_bottom), black, 5
+        )
+        cv2.rectangle(
+            rendered, (outer_left, outer_top), (outer_right, outer_bottom), cyan, 3
+        )
     cv2.rectangle(
         rendered, (inner_left, inner_top), (inner_right, inner_bottom), black, 5
     )
@@ -1084,12 +1118,37 @@ def source_boundary_image(analysis: CardAnalysis) -> np.ndarray:
         cv2.BORDER_CONSTANT,
         value=(238, 235, 228),
     )
-    boundary = np.rint(analysis.source_boundary + padding).astype(np.int32).reshape((-1, 1, 2))
+    card_outline = analysis.diagnostics.get("card_outline")
+    if card_outline:
+        destination = np.array(
+            [
+                [0, 0],
+                [CARD_WIDTH - 1, 0],
+                [CARD_WIDTH - 1, CARD_HEIGHT - 1],
+                [0, CARD_HEIGHT - 1],
+            ],
+            dtype=np.float32,
+        )
+        transform = cv2.getPerspectiveTransform(
+            destination, _order_points(analysis.source_boundary)
+        )
+        normalized_outline = np.asarray(card_outline, dtype=np.float32).reshape(
+            (-1, 1, 2)
+        )
+        boundary = cv2.perspectiveTransform(
+            normalized_outline, transform
+        )
+        boundary = np.rint(boundary + padding).astype(np.int32)
+    else:
+        boundary = np.rint(analysis.source_boundary + padding).astype(
+            np.int32
+        ).reshape((-1, 1, 2))
     cv2.polylines(canvas, [boundary], True, (0, 0, 0), 7, cv2.LINE_AA)
     cv2.polylines(canvas, [boundary], True, (40, 255, 80), 4, cv2.LINE_AA)
-    for point in boundary.reshape(-1, 2):
-        cv2.circle(canvas, tuple(point), 8, (0, 0, 0), -1, cv2.LINE_AA)
-        cv2.circle(canvas, tuple(point), 5, (40, 255, 80), -1, cv2.LINE_AA)
+    if not card_outline:
+        for point in boundary.reshape(-1, 2):
+            cv2.circle(canvas, tuple(point), 8, (0, 0, 0), -1, cv2.LINE_AA)
+            cv2.circle(canvas, tuple(point), 5, (40, 255, 80), -1, cv2.LINE_AA)
     maximum = max(canvas.shape[:2])
     if maximum > 1400:
         scale = 1400.0 / maximum

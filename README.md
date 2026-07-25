@@ -298,6 +298,10 @@ as surface scratch/print-line candidates; smooth broad glare is excluded from
 both categories. Surface candidates are labeled small, medium, or high and use
 severity weighting rather than raw highlighted-pixel totals, preventing many
 tiny marks from collapsing the surface grade.
+The back-card inspection mask and source overlay follow the detected rounded
+cardstock silhouette rather than the rectangular perspective-warp box. This
+excludes tabletop triangles outside rounded corners while preserving whitening
+on the corner arc.
 
 Centering calibration follows the published [PSA grading
 standards](https://www.psacard.com/gradingstandards) and [Beckett grading

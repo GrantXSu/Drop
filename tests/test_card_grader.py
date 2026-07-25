@@ -333,8 +333,8 @@ def test_smooth_top_border_glare_is_not_whitening() -> None:
 
 def test_shadowed_left_edge_whitening_is_detected() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
-    card[:, :85] = (72, 35, 6)
-    cv2.rectangle(card, (0, 420), (8, 442), (98, 98, 98), -1)
+    card[:, :85] = (50, 24, 4)
+    cv2.rectangle(card, (0, 420), (8, 442), (68, 68, 68), -1)
 
     _, diagnostics = _region_stats(card, side="back")
 
@@ -342,6 +342,25 @@ def test_shadowed_left_edge_whitening_is_detected() -> None:
         finding["type"] == "Localized whitening" and finding["bbox"][0] < 15
         for finding in diagnostics["defects"]
     )
+
+
+def test_back_outline_follows_rounded_card_corners() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (95, 95, 95), dtype=np.uint8)
+    radius = 44
+    cv2.rectangle(card, (radius, 0), (CARD_WIDTH - radius, CARD_HEIGHT), (145, 70, 12), -1)
+    cv2.rectangle(card, (0, radius), (CARD_WIDTH, CARD_HEIGHT - radius), (145, 70, 12), -1)
+    for center in (
+        (radius, radius),
+        (CARD_WIDTH - radius, radius),
+        (radius, CARD_HEIGHT - radius),
+        (CARD_WIDTH - radius, CARD_HEIGHT - radius),
+    ):
+        cv2.circle(card, center, radius, (145, 70, 12), -1)
+
+    _, diagnostics = _region_stats(card, side="back")
+
+    assert diagnostics["card_outline"] is not None
+    assert len(diagnostics["card_outline"]) > 4
 
 
 def test_back_whitening_finds_wear_on_outermost_corner_pixels() -> None:
