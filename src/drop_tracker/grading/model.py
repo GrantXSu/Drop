@@ -350,13 +350,13 @@ def category_subgrades(
     scores = {
         "centering": float(standards["psa"]),
         "corners": float(
-            np.clip(10.0 - 12.0 * corner - 5.0 * corner_load, 1.0, 10.0)
+            np.clip(10.0 - 8.0 * corner - 3.0 * corner_load, 1.0, 10.0)
         ),
         "edges": float(
-            np.clip(10.0 - 15.0 * edge - 6.0 * edge_load, 1.0, 10.0)
+            np.clip(10.0 - 10.0 * edge - 4.0 * edge_load, 1.0, 10.0)
         ),
         "surface": (
-            float(np.clip(10.0 - 30.0 * surface_damage, 1.0, 10.0))
+            float(np.clip(10.0 - 20.0 * surface_damage, 1.0, 10.0))
             if surface_assessed
             else None
         ),

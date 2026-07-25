@@ -339,6 +339,11 @@ findings so numerous tiny marks do not score like severe damage. Centering
 contributes 10% of the heuristic weighting and has a separate ceiling: the
 overall estimate cannot exceed the PSA-style centering subgrade by more than
 0.5. This ceiling applies to heuristic and trained overall predictions.
+Condition curves are calibrated so moderate findings reduce corners by up to
+`8 × area + 3 × repeated-load`, edges by `10 × area + 4 × repeated-load`,
+and surface by `20 × weighted-damage`. Severe normalized damage still reaches a
+1.0 subgrade, while small and medium findings no longer receive severe-wear
+penalties.
 
 ## Run continuously on Render
 

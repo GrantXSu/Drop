@@ -870,7 +870,7 @@ def test_physical_damage_and_centering_both_cap_fallback_grade(
         poor_centering, poor_centering
     )[0]["score"]
 
-    assert whitening_grade < 7.0
+    assert whitening_grade <= 7.5
     assert centering_grade <= centering_subgrade + 0.5
     assert centering_grade < 10.0
 
@@ -888,7 +888,31 @@ def test_medium_whitening_findings_do_not_score_like_high_damage() -> None:
 
     edges = category_subgrades(features, features)[2]
 
-    assert 6.5 <= edges["score"] <= 8.0
+    assert 8.0 <= edges["score"] <= 9.0
+
+
+def test_severe_condition_signals_still_reach_low_subgrades() -> None:
+    damaged = {name: 0.0 for name in BASE_FEATURES}
+    damaged.update(
+        {
+            "centering_x": 1.0,
+            "centering_y": 1.0,
+            "edge_pale": 1.0,
+            "edge_defect_load": 1.0,
+            "corner_pale_max": 1.0,
+            "corner_defect_load": 1.0,
+            "surface_assessed": 1.0,
+            "surface_damage": 1.0,
+        }
+    )
+
+    categories = {
+        item["key"]: item for item in category_subgrades(damaged, damaged)
+    }
+
+    assert categories["corners"]["score"] == 1.0
+    assert categories["edges"]["score"] == 1.0
+    assert categories["surface"]["score"] == 1.0
 
 
 def test_many_small_surface_marks_do_not_collapse_surface_grade() -> None:
