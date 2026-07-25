@@ -316,28 +316,22 @@ sleeves, holders, or image resolution. Its result is an estimate, not a
 certification or guarantee of the grade a grading company will assign.
 On card backs, damage touching the physical cut edge is edge whitening, and
 marks elsewhere in the outer dark-blue band are border/edge print-line
-candidates. Surface inspection begins inside the detected inner guides, covering
-the printed Pokémon logo, Poké Ball, and surrounding artwork. It detects thin,
-straight localized scratch/crease signals while rejecting broad glare and
-curved printed swirls. Surface candidates use weights of 0.1 (small), 0.5
-(medium), and 3.0 (high), so tiny marks remain modest while repeated severe
-scratches can produce a genuinely low surface grade.
-Generic printed-interior detection abstains when sharpness is below the photo
-quality threshold instead of drawing unreliable boxes. For stronger back
-analysis, open **Settings → Clean back calibration** and upload one sharp,
-undamaged Pokémon back at least 1000 pixels on its short edge. CardLens stores
+candidates. Back Surface is graded only through clean-reference comparison,
+because generic detection cannot reliably separate scratches from the printed
+Pokémon logo, Poké Ball, and white swirl.
+Open **Settings → Clean back calibration** and upload one sharp, undamaged
+Pokémon back at least 1000 pixels on its short edge. CardLens stores
 the normalized reference for that signed device, aligns future backs to it, and
 uses reference differences for back corners, edges, and surface while
 suppressing the printed swirl and Poké Ball artwork.
-Every scan now produces a generic Surface assessment on both front and back.
-Front generic analysis also inspects 12% corner zones and outer edge bands.
-Confidently matched references replace those generic findings with aligned
-card-specific corner, edge, and interior-surface comparison.
+Front Surface grading is intentionally disabled. Front generic analysis still
+inspects 12% corner zones and outer edge bands, and confidently matched
+references replace those generic corner/edge findings with aligned
+card-specific comparison.
 For confidently matched fronts, aligned clean-reference comparison covers the
 usable full card rather than excluding the outer border. Unmatched components
-in 12% corner zones affect Corners, components in 7% edge bands affect Edges,
-and elongated interior differences are reported as surface scratch/crease
-candidates.
+in 12% corner zones affect Corners and components in 7% edge bands affect
+Edges; interior front differences are ignored.
 The visual measurement overlay remains rectangular, while condition analysis
 uses four dedicated corner zones covering 12% of the card width/height. Damage
 inside those zones is labeled `Corner whitening`; it affects the corner

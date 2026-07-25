@@ -1225,7 +1225,7 @@
                       ? `Back printed-interior inspection · ${signals.surface.anomaly_count} scratch/crease candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
                       : signals.surface.generic_inspection
                         ? `${report.side} generic interior inspection · ${signals.surface.anomaly_count} scratch/crease candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
-                        : "Not assessed — requires a usable image."} Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
+                        : "Not assessed — requires a saved clean back reference and usable back photo."} Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
                 </div>
                 ${findings}
               </div>

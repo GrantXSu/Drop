@@ -851,86 +851,9 @@ def _region_stats(
                 }
             )
 
-        guides = centering["guides"]
-        surface_region = np.zeros((height, width), dtype=bool)
-        surface_inset = max(5, round(min(height, width) * 0.008))
-        surface_region[
-            guides["top"] + surface_inset : guides["bottom"] - surface_inset,
-            guides["left"] + surface_inset : guides["right"] - surface_inset,
-        ] = True
-        bright_scratch = (
-            surface_region
-            & ((local_saturation - saturation) > 16)
-            & ((value - local_value) > 12)
-            & (saturation < 120)
-        )
-        if features["sharpness"] < 0.08:
-            bright_scratch[:] = False
-        scratch_mask = bright_scratch.astype(np.uint8) * 255
-        scratch_mask = cv2.morphologyEx(
-            scratch_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
-        )
-        scratch_count, scratch_labels, scratch_stats, _ = (
-            cv2.connectedComponentsWithStats(scratch_mask)
-        )
-        scratch_components = []
-        for index in range(1, scratch_count):
-            x, y, box_width, box_height, area = scratch_stats[index]
-            if area < 8:
-                continue
-            coordinates = np.column_stack(np.where(scratch_labels == index))
-            covariance = np.cov(coordinates, rowvar=False)
-            eigenvalues = np.linalg.eigvalsh(covariance)
-            elongation = float(
-                np.sqrt(max(eigenvalues) / max(0.5, min(eigenvalues)))
-            )
-            line_length = max(1.0, float(np.sqrt(max(eigenvalues)) * 4.0))
-            line_thickness = area / line_length
-            if (
-                elongation < 5.0
-                or line_length < 12
-                or line_thickness < 2.0
-                or line_thickness > 6.0
-            ):
-                continue
-            if box_width > width * 0.60 or box_height > height * 0.60:
-                continue
-            scratch_components.append((area, x, y, box_width, box_height))
-        for area, x, y, box_width, box_height in sorted(
-            scratch_components, reverse=True
-        )[:20]:
-            padding = 5
-            defects.append(
-                {
-                    "type": "Surface scratch/crease candidate",
-                    "location": "back printed interior",
-                    "severity": defect_severity(int(area)),
-                    "evidence": f"{int(area)} localized interior pixels",
-                    "bbox": (
-                        int(max(0, x - padding)),
-                        int(max(0, y - padding)),
-                        int(min(width, x + box_width + padding)),
-                        int(min(height, y + box_height + padding)),
-                    ),
-                }
-            )
-        if scratch_components:
-            surface_anomaly_count = len(scratch_components)
-            surface_localized_inspection = True
-            features["surface_assessed"] = 1.0
-            surface_defect_weight = sum(
-                {
-                    "small": 0.10,
-                    "medium": 0.50,
-                    "high": 3.0,
-                }[defect_severity(int(item[0]))]
-                for item in scratch_components
-            )
-            features["surface_damage"] = float(
-                np.clip(surface_defect_weight / 30.0, 0.0, 1.0)
-            )
-        features["surface_assessed"] = 1.0
-        surface_generic_inspection = True
+        # Generic back inspection is limited to corners and border/edge wear.
+        # Interior Surface requires a saved clean-back reference to avoid
+        # mistaking the printed swirl and Poké Ball artwork for scratches.
 
     if side == "front":
         saturation = hsv[:, :, 1].astype(np.float32)
@@ -1013,75 +936,9 @@ def _region_stats(
                 }
             )
 
-        guides = centering["guides"]
-        surface_region = np.zeros((height, width), dtype=bool)
-        inset = max(5, round(min(height, width) * 0.008))
-        surface_region[
-            guides["top"] + inset : guides["bottom"] - inset,
-            guides["left"] + inset : guides["right"] - inset,
-        ] = True
-        scratch_mask = (
-            surface_region
-            & ((local_saturation - saturation) > 18)
-            & ((value - local_value) > 10)
-            & (saturation < 115)
-        ).astype(np.uint8) * 255
-        scratch_mask = cv2.morphologyEx(
-            scratch_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
-        )
-        scratch_count, scratch_labels, scratch_stats, _ = (
-            cv2.connectedComponentsWithStats(scratch_mask)
-        )
-        scratch_components = []
-        for index in range(1, scratch_count):
-            x, y, box_width, box_height, area = scratch_stats[index]
-            if area < 8:
-                continue
-            coordinates = np.column_stack(np.where(scratch_labels == index))
-            eigenvalues = np.linalg.eigvalsh(np.cov(coordinates, rowvar=False))
-            elongation = float(
-                np.sqrt(max(eigenvalues) / max(0.5, min(eigenvalues)))
-            )
-            line_length = max(1.0, float(np.sqrt(max(eigenvalues)) * 4.0))
-            line_thickness = area / line_length
-            if (
-                elongation < 5.0
-                or line_length < 12
-                or line_thickness < 2.0
-                or line_thickness > 6.0
-            ):
-                continue
-            scratch_components.append((area, x, y, box_width, box_height))
-        for area, x, y, box_width, box_height in sorted(
-            scratch_components, reverse=True
-        )[:20]:
-            severity = defect_severity(int(area))
-            defects.append(
-                {
-                    "type": "Surface scratch/crease candidate",
-                    "location": "front printed interior",
-                    "severity": severity,
-                    "evidence": f"{int(area)} localized interior pixels",
-                    "bbox": (
-                        int(max(0, x - 5)),
-                        int(max(0, y - 5)),
-                        int(min(width, x + box_width + 5)),
-                        int(min(height, y + box_height + 5)),
-                    ),
-                }
-            )
-        surface_anomaly_count = len(scratch_components)
-        surface_defect_weight = sum(
-            {"small": 0.10, "medium": 0.50, "high": 3.0}[
-                defect_severity(int(item[0]))
-            ]
-            for item in scratch_components
-        )
-        features["surface_damage"] = float(
-            np.clip(surface_defect_weight / 30.0, 0.0, 1.0)
-        )
-        features["surface_assessed"] = 1.0
-        surface_generic_inspection = True
+        # Front generic inspection intentionally stops at corners and edges.
+        # Surface is excluded because variable card artwork creates too many
+        # false positives, even with a matched front reference.
 
     edge_boxes = {
         "top edge": (0, 0, width, strip),

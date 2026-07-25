@@ -112,10 +112,7 @@ def test_analyze_image_extracts_normalized_features() -> None:
     assert set(analysis.features) == set(BASE_FEATURES)
     assert all(np.isfinite(value) for value in analysis.features.values())
     assert all(0.0 <= value <= 1.0 for value in analysis.features.values())
-    assert analysis.features["surface_assessed"] == 1.0
-    assert analysis.diagnostics["condition_signals"]["surface"][
-        "generic_inspection"
-    ]
+    assert analysis.features["surface_assessed"] == 0.0
     distances = analysis.diagnostics["centering"]["distances"]
     side_anchor = (distances["left"] + distances["right"]) / 2
     assert distances["top"] <= side_anchor * 1.8
@@ -189,7 +186,7 @@ def test_front_bottom_centering_ignores_copyright_text() -> None:
     assert centering["layout_adjustment"] is None
 
 
-def test_generic_front_inspects_corners_edges_and_surface() -> None:
+def test_generic_front_inspects_corners_and_edges_but_not_surface() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (30, 200, 235), dtype=np.uint8)
     cv2.rectangle(card, (0, 0), (12, 16), (245, 245, 245), -1)
     cv2.rectangle(card, (340, 0), (365, 9), (245, 245, 245), -1)
@@ -200,11 +197,11 @@ def test_generic_front_inspects_corners_edges_and_surface() -> None:
 
     assert "Front corner anomaly" in finding_types
     assert "Front edge anomaly" in finding_types
-    assert "Surface scratch/crease candidate" in finding_types
+    assert "Surface scratch/crease candidate" not in finding_types
     assert features["corner_defect_load"] > 0
     assert features["edge_defect_load"] > 0
-    assert features["surface_assessed"] == 1.0
-    assert features["surface_damage"] > 0
+    assert features["surface_assessed"] == 0.0
+    assert features["surface_damage"] == 0.0
 
 
 def test_front_centering_rejects_content_bars_beyond_physical_limit() -> None:
@@ -358,7 +355,7 @@ def test_inner_blue_border_streak_is_edge_not_surface() -> None:
     assert "Border print-line candidate" in finding_types
     assert "Localized whitening" not in finding_types
     assert features["edge_defect_load"] > 0
-    assert features["surface_assessed"] == 1.0
+    assert features["surface_assessed"] == 0.0
     assert features["surface_damage"] == 0.0
 
 
@@ -377,7 +374,7 @@ def test_tiny_inner_border_streak_is_labeled_small_edge_mark() -> None:
     assert border_findings[0]["severity"] == "small"
 
 
-def test_back_surface_uses_printed_interior_and_finds_scratches() -> None:
+def test_back_surface_requires_clean_reference() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
     noise = np.random.default_rng(31).integers(
         -8, 9, size=card.shape, dtype=np.int16
@@ -387,19 +384,15 @@ def test_back_surface_uses_printed_interior_and_finds_scratches() -> None:
 
     features, diagnostics = _region_stats(card, side="back")
 
-    assert any(
+    assert not any(
         finding["type"] == "Surface scratch/crease candidate"
-        and finding["location"] == "back printed interior"
         for finding in diagnostics["defects"]
     )
-    assert features["surface_assessed"] == 1.0
-    assert features["surface_damage"] > 0
-    assert diagnostics["condition_signals"]["surface"][
-        "localized_border_inspection"
-    ]
+    assert features["surface_assessed"] == 0.0
+    assert features["surface_damage"] == 0.0
 
 
-def test_multiple_high_interior_scratches_receive_low_surface_grade() -> None:
+def test_unreferenced_back_scratches_do_not_create_false_surface_grade() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
     noise = np.random.default_rng(32).integers(
         -8, 9, size=card.shape, dtype=np.int16
@@ -411,7 +404,7 @@ def test_multiple_high_interior_scratches_receive_low_surface_grade() -> None:
     features, _ = _region_stats(card, side="back")
     surface = category_subgrades(features, features)[-1]
 
-    assert surface["score"] <= 3.0
+    assert surface["score"] is None
 
 
 def test_smooth_top_border_glare_is_not_whitening() -> None:
@@ -754,7 +747,7 @@ def test_catalog_reference_calibrates_layout_without_moving_guides() -> None:
     assert centering["reference_calibrated"]
 
 
-def test_catalog_reference_grades_visible_surface_scratch() -> None:
+def test_front_reference_grades_corners_and_edges_but_not_surface() -> None:
     image = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (75, 115, 165), dtype=np.uint8)
     rng = np.random.default_rng(19)
     for _ in range(80):
@@ -778,7 +771,7 @@ def test_catalog_reference_grades_visible_surface_scratch() -> None:
             "reference_features": reference_features,
         },
     )
-    assert clean_analysis.features["surface_assessed"] == 1.0
+    assert clean_analysis.features["surface_assessed"] == 0.0
     assert clean_analysis.features["surface_damage"] == 0.0
     assert clean_analysis.features["corner_defect_load"] == 0.0
     assert clean_analysis.features["edge_defect_load"] == 0.0
@@ -795,15 +788,14 @@ def test_catalog_reference_grades_visible_surface_scratch() -> None:
         },
     )
 
-    assert analysis.features["surface_assessed"] == 1.0
-    assert analysis.features["surface_damage"] > 0
-    assert any(
+    assert analysis.features["surface_assessed"] == 0.0
+    assert analysis.features["surface_damage"] == 0.0
+    assert not any(
         finding["type"] == "Surface scratch/crease candidate"
         for finding in analysis.diagnostics["defects"]
     )
     surface = category_subgrades(analysis.features, None)[-1]
-    assert surface["score"] is not None
-    assert surface["score"] < 10.0
+    assert surface["score"] is None
 
     border_analysis = analyze_image(encoded.tobytes(), side="front")
     cv2.line(border_analysis.image, (20, 20), (75, 75), (5, 5, 5), 5)
@@ -852,7 +844,7 @@ def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
         category["score"] is None or 1.0 <= category["score"] <= 10.0
         for category in payload["categories"]
     )
-    assert payload["categories"][-1]["score"] is not None
+    assert payload["categories"][-1]["score"] is None
     assert payload["prediction"]["label"]
     assert payload["billing"]["remaining_today"] == 2
     assert "Add a back photo" in payload["warnings"][-1]

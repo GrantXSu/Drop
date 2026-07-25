@@ -683,7 +683,7 @@ def apply_reference_baseline(
         "edge_weight": 0.0,
         "corner_weight": 0.0,
     }
-    if not _apply_surface_reference(analysis, reference):
+    if not _apply_surface_reference(analysis, reference, include_surface=False):
         analysis.features.clear()
         analysis.features.update(original_features)
         analysis.diagnostics.clear()
@@ -747,6 +747,7 @@ def _apply_surface_reference(
     analysis: CardAnalysis,
     reference: Dict[str, object],
     side: str = "front",
+    include_surface: bool = True,
 ) -> bool:
     """Locate thin observed edges absent from aligned clean artwork."""
     encoded_thumbnail = reference.get("reference_thumbnail")
@@ -910,6 +911,8 @@ def _apply_surface_reference(
         else:
             category = "surface"
             location = f"{side} surface"
+        if category == "surface" and not include_surface:
+            continue
         anomalies.append(
             {
                 "area": int(area),
@@ -981,8 +984,9 @@ def _apply_surface_reference(
         for item in edge_anomalies
     )
     damage = float(np.clip(surface_weight / 30.0, 0, 1))
-    analysis.features["surface_damage"] = damage
-    analysis.features["surface_assessed"] = 1.0
+    if include_surface:
+        analysis.features["surface_damage"] = damage
+        analysis.features["surface_assessed"] = 1.0
     analysis.features["corner_defect_load"] = max(
         analysis.features["corner_defect_load"],
         float(np.clip(corner_weight / 4.0, 0, 1)),
@@ -992,9 +996,13 @@ def _apply_surface_reference(
         float(np.clip(edge_weight / 12.0, 0, 1)),
     )
     surface_signals = analysis.diagnostics["condition_signals"]["surface"]
-    surface_signals["reference_compared"] = True
-    surface_signals["anomaly_count"] = len(surface_anomalies)
-    surface_signals["severity_weight"] = round(surface_weight, 2)
+    surface_signals["reference_compared"] = include_surface
+    surface_signals["anomaly_count"] = (
+        len(surface_anomalies) if include_surface else 0
+    )
+    surface_signals["severity_weight"] = (
+        round(surface_weight, 2) if include_surface else 0.0
+    )
     surface_signals["front_corner_anomalies"] = len(corner_anomalies)
     surface_signals["front_edge_anomalies"] = len(edge_anomalies)
     defect_counts = analysis.diagnostics["condition_signals"]["defect_counts"]

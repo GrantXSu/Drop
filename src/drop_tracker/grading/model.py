@@ -449,7 +449,7 @@ def category_subgrades(
                 "Visually inspected for localized scratches and creases; "
                 "aligned clean references are used when available."
                 if surface_assessed
-                else "Requires a confident catalog match and usable clean reference."
+                else "Requires a saved clean back reference and usable back photo."
             ),
         },
     )
