@@ -297,15 +297,45 @@ def test_inner_corner_damage_scores_corner_without_edge_penalty() -> None:
     assert features["edge_defect_load"] == 0
 
 
-def test_inner_blue_border_streak_is_surface_not_edge_whitening() -> None:
+def test_inner_blue_border_streak_is_edge_not_surface() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
     cv2.line(card, (CARD_WIDTH // 2, 13), (CARD_WIDTH // 2, 31), (235, 235, 235), 3)
 
     features, diagnostics = _region_stats(card, side="back")
     finding_types = [finding["type"] for finding in diagnostics["defects"]]
 
-    assert "Surface scratch/print-line candidate" in finding_types
+    assert "Border print-line candidate" in finding_types
     assert "Localized whitening" not in finding_types
+    assert features["edge_defect_load"] > 0
+    assert features["surface_assessed"] == 0.0
+
+
+def test_tiny_inner_border_streak_is_labeled_small_edge_mark() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    cv2.line(card, (CARD_WIDTH // 2, 13), (CARD_WIDTH // 2, 21), (235, 235, 235), 1)
+
+    _, diagnostics = _region_stats(card, side="back")
+    border_findings = [
+        finding
+        for finding in diagnostics["defects"]
+        if finding["type"] == "Border print-line candidate"
+    ]
+
+    assert border_findings
+    assert border_findings[0]["severity"] == "small"
+
+
+def test_back_surface_uses_printed_interior_and_finds_scratches() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    cv2.line(card, (180, 260), (560, 610), (235, 235, 235), 3)
+
+    features, diagnostics = _region_stats(card, side="back")
+
+    assert any(
+        finding["type"] == "Surface scratch/crease candidate"
+        and finding["location"] == "back printed interior"
+        for finding in diagnostics["defects"]
+    )
     assert features["surface_assessed"] == 1.0
     assert features["surface_damage"] > 0
     assert diagnostics["condition_signals"]["surface"][
@@ -313,19 +343,15 @@ def test_inner_blue_border_streak_is_surface_not_edge_whitening() -> None:
     ]
 
 
-def test_tiny_inner_border_streak_is_labeled_small() -> None:
+def test_multiple_high_interior_scratches_receive_low_surface_grade() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
-    cv2.line(card, (CARD_WIDTH // 2, 13), (CARD_WIDTH // 2, 21), (235, 235, 235), 1)
+    for y in (250, 350, 450, 550):
+        cv2.line(card, (160, y), (590, y + 180), (235, 235, 235), 3)
 
-    _, diagnostics = _region_stats(card, side="back")
-    surface_findings = [
-        finding
-        for finding in diagnostics["defects"]
-        if finding["type"] == "Surface scratch/print-line candidate"
-    ]
+    features, _ = _region_stats(card, side="back")
+    surface = category_subgrades(features, features)[-1]
 
-    assert surface_findings
-    assert surface_findings[0]["severity"] == "small"
+    assert surface["score"] <= 3.0
 
 
 def test_smooth_top_border_glare_is_not_whitening() -> None:

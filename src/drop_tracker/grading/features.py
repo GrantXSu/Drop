@@ -775,38 +775,51 @@ def _region_stats(
                 }
             )
 
-        surface_mask = (
+        border_mark_mask = (
             (value > 50)
             & inner_border_mask
             & ~corner_zone_mask
             & (localized_change | strong_local_white)
             & (local_saturation > 70)
         ).astype(np.uint8) * 255
-        surface_mask = cv2.morphologyEx(
-            surface_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
+        border_mark_mask = cv2.morphologyEx(
+            border_mark_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
         )
-        surface_count, _, surface_stats, _ = cv2.connectedComponentsWithStats(
-            surface_mask
+        border_count, _, border_stats, _ = cv2.connectedComponentsWithStats(
+            border_mark_mask
         )
-        surface_components = []
-        for index in range(1, surface_count):
-            x, y, box_width, box_height, area = surface_stats[index]
+        for index in range(1, border_count):
+            x, y, box_width, box_height, area = border_stats[index]
             short, long = sorted((box_width, box_height))
             if area < 5 or short <= 0 or long < 7 or long / short < 2.0:
                 continue
             if box_width > width * 0.15 or box_height > height * 0.15:
                 continue
-            surface_components.append((area, x, y, box_width, box_height))
-        for area, x, y, box_width, box_height in sorted(
-            surface_components, reverse=True
-        )[:20]:
+            center_x = x + box_width / 2.0
+            center_y = y + box_height / 2.0
+            nearest_edge = min(
+                (
+                    (center_y, "top edge"),
+                    (width - center_x, "right edge"),
+                    (height - center_y, "bottom edge"),
+                    (center_x, "left edge"),
+                ),
+                key=lambda item: item[0],
+            )[1]
+            severity = defect_severity(int(area))
+            edge_length = width if nearest_edge in {"top edge", "bottom edge"} else height
+            confirmed_edge_signals[nearest_edge] += area / max(
+                1, strip * edge_length
+            )
+            edge_defect_count += 1
+            edge_defect_weight += defect_weight(severity)
             padding = 5
             defects.append(
                 {
-                    "type": "Surface scratch/print-line candidate",
-                    "location": "back blue border",
-                    "severity": defect_severity(int(area)),
-                    "evidence": f"{int(area)} localized surface pixels",
+                    "type": "Border print-line candidate",
+                    "location": f"back {nearest_edge}",
+                    "severity": severity,
+                    "evidence": f"{int(area)} localized border pixels",
                     "bbox": (
                         int(max(0, x - padding)),
                         int(max(0, y - padding)),
@@ -815,17 +828,79 @@ def _region_stats(
                     ),
                 }
             )
-        if surface_components:
-            surface_anomaly_count = len(surface_components)
+
+        guides = centering["guides"]
+        surface_region = np.zeros((height, width), dtype=bool)
+        surface_inset = max(5, round(min(height, width) * 0.008))
+        surface_region[
+            guides["top"] + surface_inset : guides["bottom"] - surface_inset,
+            guides["left"] + surface_inset : guides["right"] - surface_inset,
+        ] = True
+        bright_scratch = (
+            surface_region
+            & ((local_saturation - saturation) > 16)
+            & ((value - local_value) > 12)
+            & (saturation < 120)
+        )
+        scratch_mask = bright_scratch.astype(np.uint8) * 255
+        scratch_mask = cv2.morphologyEx(
+            scratch_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
+        )
+        scratch_count, scratch_labels, scratch_stats, _ = (
+            cv2.connectedComponentsWithStats(scratch_mask)
+        )
+        scratch_components = []
+        for index in range(1, scratch_count):
+            x, y, box_width, box_height, area = scratch_stats[index]
+            if area < 8:
+                continue
+            coordinates = np.column_stack(np.where(scratch_labels == index))
+            covariance = np.cov(coordinates, rowvar=False)
+            eigenvalues = np.linalg.eigvalsh(covariance)
+            elongation = float(
+                np.sqrt(max(eigenvalues) / max(0.5, min(eigenvalues)))
+            )
+            line_length = max(1.0, float(np.sqrt(max(eigenvalues)) * 4.0))
+            line_thickness = area / line_length
+            if (
+                elongation < 5.0
+                or line_length < 12
+                or line_thickness < 2.0
+                or line_thickness > 6.0
+            ):
+                continue
+            if box_width > width * 0.60 or box_height > height * 0.60:
+                continue
+            scratch_components.append((area, x, y, box_width, box_height))
+        for area, x, y, box_width, box_height in sorted(
+            scratch_components, reverse=True
+        )[:20]:
+            padding = 5
+            defects.append(
+                {
+                    "type": "Surface scratch/crease candidate",
+                    "location": "back printed interior",
+                    "severity": defect_severity(int(area)),
+                    "evidence": f"{int(area)} localized interior pixels",
+                    "bbox": (
+                        int(max(0, x - padding)),
+                        int(max(0, y - padding)),
+                        int(min(width, x + box_width + padding)),
+                        int(min(height, y + box_height + padding)),
+                    ),
+                }
+            )
+        if scratch_components:
+            surface_anomaly_count = len(scratch_components)
             surface_localized_inspection = True
             features["surface_assessed"] = 1.0
             surface_defect_weight = sum(
                 {
                     "small": 0.10,
                     "medium": 0.50,
-                    "high": 2.0,
+                    "high": 3.0,
                 }[defect_severity(int(item[0]))]
-                for item in surface_components
+                for item in scratch_components
             )
             features["surface_damage"] = float(
                 np.clip(surface_defect_weight / 30.0, 0.0, 1.0)

@@ -307,12 +307,14 @@ permission where needed.
 CardLens is not affiliated with PSA and cannot inspect damage hidden by glare,
 sleeves, holders, or image resolution. Its result is an estimate, not a
 certification or guarantee of the grade a grading company will assign.
-On card backs, only damage touching the physical cut edge is classified as edge
-whitening. Localized white streaks farther inside the blue border are reported
-as surface scratch/print-line candidates; smooth broad glare is excluded from
-both categories. Surface candidates are labeled small, medium, or high and use
-severity weighting rather than raw highlighted-pixel totals, preventing many
-tiny marks from collapsing the surface grade.
+On card backs, damage touching the physical cut edge is edge whitening, and
+marks elsewhere in the outer dark-blue band are border/edge print-line
+candidates. Surface inspection begins inside the detected inner guides, covering
+the printed Pokémon logo, Poké Ball, and surrounding artwork. It detects thin,
+straight localized scratch/crease signals while rejecting broad glare and
+curved printed swirls. Surface candidates use weights of 0.1 (small), 0.5
+(medium), and 3.0 (high), so tiny marks remain modest while repeated severe
+scratches can produce a genuinely low surface grade.
 For confidently matched fronts, aligned clean-reference comparison covers the
 usable full card rather than excluding the outer border. Unmatched components
 in 12% corner zones affect Corners, components in 7% edge bands affect Edges,

@@ -1111,7 +1111,7 @@
                   <div class="signal"><b>Surface evidence</b><span>${signals.surface.reference_compared
                     ? `Clean reference compared · ${signals.surface.anomaly_count} candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
                     : signals.surface.localized_border_inspection
-                      ? `Localized back-border inspection · ${signals.surface.anomaly_count} candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
+                      ? `Back printed-interior inspection · ${signals.surface.anomaly_count} scratch/crease candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
                       : "Not assessed — requires a confident card match with a clean reference."} Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
                 </div>
                 ${findings}
