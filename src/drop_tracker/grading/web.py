@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hmac
 import os
 import threading
 import uuid
@@ -56,6 +57,10 @@ app = FastAPI(title="Pokémon Card Grade Scanner", version="0.1.0")
 
 class CheckoutRequest(BaseModel):
     plan: Literal["monthly", "annual"]
+
+
+class DeveloperUnlockRequest(BaseModel):
+    password: str
 
 
 @app.middleware("http")
@@ -228,6 +233,26 @@ async def stripe_webhook(request: Request) -> dict:
             status=item.get("status") or "inactive",
         )
     return {"received": True}
+
+
+@app.post("/api/developer/unlock")
+def developer_unlock(payload: DeveloperUnlockRequest, request: Request) -> dict:
+    expected = os.getenv("CARDLENS_DEVELOPER_PASSWORD")
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Developer access is not configured on this server.",
+        )
+    if not hmac.compare_digest(payload.password.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="Incorrect developer password.")
+    set_subscription(device_id=request.state.device_id, status="developer")
+    return {"billing": usage_status(request.state.device_id)}
+
+
+@app.post("/api/developer/lock")
+def developer_lock(request: Request) -> dict:
+    set_subscription(device_id=request.state.device_id, status="inactive")
+    return {"billing": usage_status(request.state.device_id)}
 
 
 @app.get("/api/cards")

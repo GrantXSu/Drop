@@ -98,10 +98,14 @@ def _today() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
-def _is_pro(row: Optional[sqlite3.Row]) -> bool:
+def _plan(row: Optional[sqlite3.Row]) -> str:
     if os.getenv("CARDLENS_DEV_PRO") == "1":
-        return True
-    return bool(row and row["subscription_status"] in {"active", "trialing"})
+        return "developer"
+    if row and row["subscription_status"] == "developer":
+        return "developer"
+    if row and row["subscription_status"] in {"active", "trialing"}:
+        return "pro"
+    return "free"
 
 
 def usage_status(device_id: str, path: Optional[Path] = None) -> Dict[str, object]:
@@ -115,14 +119,17 @@ def usage_status(device_id: str, path: Optional[Path] = None) -> Dict[str, objec
     ).fetchone()
     connection.close()
     used = int(usage["scan_count"]) if usage else 0
-    pro = _is_pro(device)
+    plan = _plan(device)
+    unlimited = plan in {"pro", "developer"}
     return {
-        "plan": "pro" if pro else "free",
-        "is_pro": pro,
+        "plan": plan,
+        "is_pro": plan == "pro",
+        "is_developer": plan == "developer",
+        "is_unlimited": unlimited,
         "used_today": used,
-        "daily_limit": None if pro else FREE_DAILY_LIMIT,
-        "remaining_today": None if pro else max(0, FREE_DAILY_LIMIT - used),
-        "can_scan": pro or used < FREE_DAILY_LIMIT,
+        "daily_limit": None if unlimited else FREE_DAILY_LIMIT,
+        "remaining_today": None if unlimited else max(0, FREE_DAILY_LIMIT - used),
+        "can_scan": unlimited or used < FREE_DAILY_LIMIT,
         "monthly_price": PRO_MONTHLY_PRICE,
         "annual_price": PRO_ANNUAL_PRICE,
         "billing_configured": bool(
@@ -140,7 +147,7 @@ def consume_scan(
     path: Optional[Path] = None,
 ) -> Dict[str, object]:
     current = usage_status(device_id, path)
-    if current["is_pro"]:
+    if current["is_unlimited"]:
         return current
     if not current["can_scan"]:
         return current

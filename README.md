@@ -192,6 +192,7 @@ monthly recurring price and one annual recurring price in Stripe, then set:
 
 ```sh
 CARDLENS_COOKIE_SECRET="a-long-random-production-secret"
+CARDLENS_DEVELOPER_PASSWORD="a-separate-strong-developer-password"
 STRIPE_SECRET_KEY="sk_..."
 STRIPE_WEBHOOK_SECRET="whsec_..."
 STRIPE_PRO_MONTHLY_PRICE_ID="price_..."
@@ -210,6 +211,12 @@ stripe listen --forward-to localhost:8000/api/billing/webhook
 The included entitlement is tied to a signed browser/device cookie. Before a
 commercial public launch, add user accounts and a hosted transactional database
 so paid access works across devices and cannot be reset by clearing cookies.
+
+For local development, set `CARDLENS_DEVELOPER_PASSWORD`, open **Settings**, and
+enter it under **Developer access**. The password is verified only by the server
+using a timing-safe comparison; it is never embedded in browser code. Successful
+unlock grants unlimited scans to that signed device. Use HTTPS outside localhost
+and never commit the password.
 
 ### Sync the card identification catalog
 
@@ -235,6 +242,8 @@ without moving the detected border guides.
 When visual matching is not confident, the report provides a catalog search.
 Enter a name, number, set, or combination such as `Pikachu 065`, then choose
 **This is my card** to rerun the report with that exact reference.
+The same search is available above the camera/upload controls, allowing the card
+to be selected before any photo is captured or analyzed.
 
 ### Train it with verified samples
 

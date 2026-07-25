@@ -695,6 +695,8 @@ def test_ui_collapses_detected_findings() -> None:
     assert 'data-nav="analyze"' in response.text
     assert 'data-nav="cards"' in response.text
     assert 'data-nav="settings"' in response.text
+    assert 'id="prescan-card-query"' in response.text
+    assert 'id="developer-password"' in response.text
 
     assert TestClient(app).get("/cards").status_code == 200
     assert TestClient(app).get("/settings").status_code == 200
@@ -917,3 +919,33 @@ def test_pro_checkout_uses_configured_stripe_price(monkeypatch, tmp_path: Path) 
     assert captured["mode"] == "subscription"
     assert captured["line_items"] == [{"price": "price_annual", "quantity": 1}]
     assert captured["metadata"]["plan"] == "annual"
+
+
+def test_developer_password_grants_unlimited_access(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("CARDLENS_BILLING_DB", str(tmp_path / "billing.sqlite"))
+    monkeypatch.setenv("CARDLENS_COOKIE_SECRET", "test-cookie-secret")
+    monkeypatch.setenv("CARDLENS_DEVELOPER_PASSWORD", "correct horse battery staple")
+    client = TestClient(app)
+    client.get("/api/status")
+
+    denied = client.post(
+        "/api/developer/unlock", json={"password": "incorrect"}
+    )
+    assert denied.status_code == 401
+
+    unlocked = client.post(
+        "/api/developer/unlock",
+        json={"password": "correct horse battery staple"},
+    )
+    assert unlocked.status_code == 200
+    billing = unlocked.json()["billing"]
+    assert billing["plan"] == "developer"
+    assert billing["is_developer"]
+    assert billing["is_unlimited"]
+    assert billing["daily_limit"] is None
+
+    locked = client.post("/api/developer/lock")
+    assert locked.status_code == 200
+    assert locked.json()["billing"]["plan"] == "free"
