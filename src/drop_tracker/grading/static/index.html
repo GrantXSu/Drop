@@ -72,8 +72,16 @@
     .metric { display:grid; grid-template-columns:110px 1fr 46px; gap:12px; align-items:center; margin:17px 0; }
     .metric-copy { display:flex; flex-direction:column; }
     .metric-copy small { color:var(--muted); }
+    .metric-detail { grid-column:1/-1; margin:-8px 0 4px; color:var(--muted); font-size:12px; }
     .bar { height:8px; border-radius:99px; overflow:hidden; background:#e9e6df; }
     .bar i { display:block; height:100%; background:linear-gradient(90deg,var(--red),var(--gold),#50a879); border-radius:inherit; }
+    .surface-gate { display:grid; gap:10px; margin-top:8px; padding:14px; border:1px solid #d7b56a; border-radius:12px; background:#fff7e6; }
+    .surface-gate strong { display:block; font-size:15px; }
+    .surface-gate span { color:#6d5320; font-size:13px; }
+    .surface-gate button { width:fit-content; }
+    .identity-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .identity-actions button { min-height:36px; padding:8px 11px; font-size:12px; }
+    .candidate-list { display:grid; gap:7px; width:100%; margin-top:10px; }
     .warnings { color:#765d18; background:#fff4d7; border-radius:12px; padding:12px 16px; margin-top:16px; font-size:14px; }
     .disclaimer { color:var(--muted); margin-top:16px; font-size:13px; }
     .evidence { margin-top:34px; padding-top:28px; border-top:1px solid var(--line); }
@@ -174,10 +182,15 @@
     .page-heading h1 { font-size:clamp(34px,6vw,54px); }
     .page-heading p { color:var(--muted); }
     .history-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-    .history-card { display:grid; grid-template-columns:68px 1fr; gap:12px; padding:13px; border:1px solid var(--line); border-radius:14px; background:#fff; }
+    .history-card { display:grid; grid-template-columns:68px 1fr; gap:12px; padding:13px; border:1px solid var(--line); border-radius:14px; background:#fff; cursor:pointer; text-align:left; width:100%; color:inherit; font:inherit; }
     .history-card img,.history-placeholder { width:68px; height:95px; object-fit:contain; border-radius:7px; background:#ece9e2; }
     .history-card h3 { margin:0; font-size:17px; }
     .history-card p { margin:2px 0; color:var(--muted); font-size:12px; }
+    .history-card[aria-expanded="true"] { border-color:#b9c4ef; background:#f7f8fd; }
+    .history-details { grid-column:1/-1; display:none; padding-top:8px; border-top:1px solid var(--line); }
+    .history-card[aria-expanded="true"] .history-details { display:grid; gap:6px; }
+    .history-details span { display:flex; justify-content:space-between; gap:10px; font-size:13px; }
+    .history-details small { color:var(--muted); }
     .history-grade { font-size:28px; color:#a16e00; font-weight:900; }
     .empty-state { padding:30px; border:1px dashed #c8c5bd; border-radius:15px; color:var(--muted); text-align:center; }
     .pro-ad { position:relative; display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; margin:0 0 16px; padding:17px 48px 17px 18px; overflow:hidden; border-radius:17px; color:#fff; background:linear-gradient(120deg,#243bba,#7552d5 58%,#d68032); box-shadow:0 12px 30px #273a8e2b; }
@@ -196,6 +209,10 @@
     .settings-card button { margin:4px 4px 0 0; }
     .settings-card input[type="file"] { width:100%; margin:6px 0; }
     .reference-message { min-height:20px; color:var(--muted); font-size:12px; }
+    .reference-preview { display:none; width:84px; height:118px; margin:8px 0; object-fit:contain; border-radius:8px; background:#ece9e2; border:1px solid var(--line); }
+    .reference-preview.has-image { display:block; }
+    #clean-back-card { scroll-margin-top:88px; }
+    #clean-back-card.highlight-target { box-shadow:0 0 0 3px #f5be39aa; }
     .bottom-nav { position:fixed; z-index:40; left:50%; bottom:max(10px,env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(3,1fr); width:min(430px,calc(100% - 20px)); transform:translateX(-50%); border:1px solid #d7d4cc; border-radius:19px; overflow:hidden; background:#fffdf8ed; box-shadow:0 12px 40px #17213a2b; backdrop-filter:blur(14px); }
     .bottom-nav a { display:flex; flex-direction:column; align-items:center; gap:1px; padding:9px 5px 8px; color:var(--muted); text-decoration:none; font-size:11px; font-weight:750; }
     .bottom-nav a span:first-child { font-size:20px; line-height:1; }
@@ -303,7 +320,8 @@
           <li>Use the original camera image at high resolution; avoid screenshots.</li>
           <li>Remove sleeves and holders, use diffuse light, and turn off flash.</li>
           <li>Keep all four corners visible against a contrasting plain surface.</li>
-          <li>Upload both front and back; use an angled-light photo to verify surface wear.</li>
+          <li>Upload both front and back photos for centering, corners, and edges.</li>
+          <li>Save one sharp, undamaged Pokémon back in Settings → Clean back calibration (≥1000px short edge) before Surface can be graded.</li>
         </ul>
       </details>
       <div class="prescan-card">
@@ -409,13 +427,14 @@
           <h3>Accuracy</h3>
           <p>Use high-resolution front/back photos, diffuse lighting, and verified training data.</p>
         </article>
-        <article class="settings-card">
+        <article class="settings-card" id="clean-back-card">
           <h3>Clean back calibration</h3>
-          <p>Upload one sharp, undamaged Pokémon card back. CardLens will align future backs against it to separate printed artwork from real wear.</p>
+          <p>Upload one sharp, undamaged Pokémon card back (≥1000px short edge). CardLens aligns future backs against it for corners, edges, and Surface grading while ignoring printed swirls.</p>
           <input id="back-reference-input" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+          <img class="reference-preview" id="back-reference-preview" alt="Saved clean back reference preview">
           <button id="save-back-reference" type="button">Save clean back reference</button>
           <button id="remove-back-reference" class="secondary-button" type="button" hidden>Remove reference</button>
-          <div class="reference-message" id="back-reference-message">No clean back reference saved.</div>
+          <div class="reference-message" id="back-reference-message">No clean back reference saved · Surface stays Not assessed until this is ready.</div>
         </article>
       </div>
     </section>
@@ -537,13 +556,21 @@
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "History could not load.");
         grid.innerHTML = payload.cards.length
-          ? payload.cards.map(card => {
+          ? payload.cards.map((card, index) => {
               const categoryText = card.categories
-                .filter(category => category.score !== null)
-                .map(category => `${category.name} ${Number(category.score).toFixed(1)}`)
+                .map(category => category.score === null
+                  ? `${category.name} —`
+                  : `${category.name} ${Number(category.score).toFixed(1)}`)
                 .join(" · ");
+              const details = card.categories.map(category => `
+                <span>
+                  <b>${escapeHtml(category.name)}</b>
+                  <span>${category.score === null ? "—" : Number(category.score).toFixed(1)}</span>
+                </span>
+                <small>${escapeHtml(category.condition || "")}${category.detail ? ` · ${escapeHtml(category.detail)}` : ""}</small>
+              `).join("");
               return `
-                <article class="history-card">
+                <button class="history-card" type="button" data-history-index="${index}" aria-expanded="false">
                   ${card.image_url
                     ? `<img src="${card.image_url}" alt="">`
                     : `<div class="history-placeholder"></div>`}
@@ -554,12 +581,31 @@
                     <p>${escapeHtml(card.label)} · ${new Date(card.created_at).toLocaleString()}</p>
                     <p>${escapeHtml(categoryText)}</p>
                   </div>
-                </article>`;
+                  <div class="history-details">${details}</div>
+                </button>`;
             }).join("")
           : `<div class="empty-state">No cards graded yet. Analyze a card and it will appear here.</div>`;
+        grid.querySelectorAll("[data-history-index]").forEach(card => {
+          card.addEventListener("click", () => {
+            const open = card.getAttribute("aria-expanded") === "true";
+            grid.querySelectorAll("[data-history-index]").forEach(other => {
+              other.setAttribute("aria-expanded", "false");
+            });
+            card.setAttribute("aria-expanded", open ? "false" : "true");
+          });
+        });
       } catch (error) {
         grid.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
       }
+    }
+
+    function openCleanBackSettings() {
+      showPage("settings");
+      const card = document.querySelector("#clean-back-card");
+      if (!card) return;
+      card.classList.add("highlight-target");
+      card.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.setTimeout(() => card.classList.remove("highlight-target"), 2200);
     }
 
     function showPage(page, updateUrl = true) {
@@ -813,8 +859,13 @@
         !billing.back_reference_ready;
       document.querySelector("#back-reference-message").textContent =
         billing.back_reference_ready
-          ? "Clean back reference ready."
-          : "No clean back reference saved.";
+          ? "Ready · used for back corners, edges, and Surface when alignment succeeds."
+          : "No clean back reference saved · Surface stays Not assessed until this is ready.";
+      if (!billing.back_reference_ready) {
+        const preview = document.querySelector("#back-reference-preview");
+        preview.removeAttribute("src");
+        preview.classList.remove("has-image");
+      }
       let adsDismissed = false;
       try {
         adsDismissed = sessionStorage.getItem("cardlens_pro_ads_dismissed") === "1";
@@ -915,8 +966,15 @@
         });
         const payload = await response.json();
         if (response.ok) {
+          const preview = document.querySelector("#back-reference-preview");
+          if (input.files[0]) {
+            preview.src = URL.createObjectURL(input.files[0]);
+            preview.classList.add("has-image");
+          }
           input.value = "";
           updateBilling(payload.billing);
+          message.textContent =
+            "Ready · used for back corners, edges, and Surface when alignment succeeds.";
         } else {
           message.textContent = payload.detail || "Reference could not be saved.";
         }
@@ -926,7 +984,12 @@
       "click", async () => {
         const response = await fetch("/api/reference/back", { method:"DELETE" });
         const payload = await response.json();
-        if (response.ok) updateBilling(payload.billing);
+        if (response.ok) {
+          const preview = document.querySelector("#back-reference-preview");
+          preview.removeAttribute("src");
+          preview.classList.remove("has-image");
+          updateBilling(payload.billing);
+        }
       }
     );
 
@@ -943,7 +1006,71 @@
         `${card.name} · ${card.set_name} · ${card.number}`;
       selected.hidden = false;
       document.querySelector("#prescan-card-results").innerHTML = "";
+      const identityResults = document.querySelector("#card-search-results");
+      if (identityResults) identityResults.innerHTML = "";
       if (rescan) scan.click();
+    }
+
+    function renderCandidateCards(candidates) {
+      if (!Array.isArray(candidates) || !candidates.length) return "";
+      return `
+        <div class="candidate-list">
+          ${candidates.slice(0, 5).map((card, index) => `
+            <div class="card-search-result">
+              <div class="card-result-image${card.image_url ? "" : " missing"}">
+                <span>No image</span>
+                ${card.image_url ? `<img src="${card.image_url}" alt="" onerror="this.parentElement.classList.add('missing')">` : ""}
+              </div>
+              <span>
+                <b>${escapeHtml(card.name)}</b>
+                <small>${escapeHtml(card.set_name)} · ${escapeHtml(card.number)} · ${Math.round(Number(card.confidence || 0) * 100)}%</small>
+              </span>
+              <button type="button" data-candidate-index="${index}">This is my card</button>
+            </div>
+          `).join("")}
+        </div>`;
+    }
+
+    function bindCandidateButtons(container, candidates) {
+      if (!container || !Array.isArray(candidates)) return;
+      container.querySelectorAll("[data-candidate-index]").forEach(button => {
+        button.addEventListener("click", () => {
+          selectCatalogCard(
+            candidates[Number(button.dataset.candidateIndex)],
+            true,
+          );
+        });
+      });
+    }
+
+    function surfaceGateMessage(status, billing) {
+      if (status === "applied") return null;
+      if (status === "align_failed") {
+        return {
+          title: "Surface wasn’t graded",
+          body: "Your clean back is saved, but CardLens could not align it to this photo. Retake the back in even light or recalibrate.",
+          action: "Open clean back settings",
+        };
+      }
+      if (status === "no_back") {
+        return {
+          title: "Surface wasn’t graded",
+          body: "Add a back photo so CardLens can compare it with your saved clean back reference.",
+          action: null,
+        };
+      }
+      if (billing && billing.back_reference_ready) {
+        return {
+          title: "Surface wasn’t graded",
+          body: "A clean back is saved, but this scan still needs an alignable back photo.",
+          action: null,
+        };
+      }
+      return {
+        title: "Surface wasn’t graded",
+        body: "Save one sharp, undamaged Pokémon back in Clean back calibration. Surface stays Not assessed until that reference can be aligned.",
+        action: "Calibrate clean back",
+      };
     }
 
     function bindCardSearch(input, button, output, rescan = false) {
@@ -1051,6 +1178,13 @@
         currentScanId = data.scan_id || currentScanId;
         const prediction = data.prediction;
         const identity = document.querySelector("#identity");
+        const candidates = (data.identification && data.identification.candidates) || [];
+        const searchBlock = `
+          <div class="card-search-row">
+            <input id="card-search-query" type="search" placeholder="Card name and number, e.g. Pikachu 065">
+            <button id="card-search-button" type="button">Search</button>
+          </div>
+          <div class="card-search-results" id="card-search-results"></div>`;
         if (data.identification && data.identification.match) {
           const match = data.identification.match;
           const matchDescription = match.match_method === "manual"
@@ -1058,24 +1192,41 @@
             : match.match_method === "ml_visual"
               ? `ML artwork match · ${Math.round(match.confidence * 100)}% confidence`
               : `${Math.round(match.confidence * 100)}% visual confidence`;
+          const alternateCandidates = candidates.filter(card => card.id !== match.id);
           identity.innerHTML = `
             ${match.image_url ? `<img src="${match.image_url}" alt="${match.name} reference image">` : ""}
-            <div><small>Catalog match</small><strong>${match.name}</strong>
-              <span>${match.set_name} · ${match.number} · ${matchDescription}</span>
+            <div>
+              <small>Catalog match</small><strong>${escapeHtml(match.name)}</strong>
+              <span>${escapeHtml(match.set_name)} · ${escapeHtml(match.number)} · ${escapeHtml(matchDescription)}</span>
+              <div class="identity-actions">
+                <button type="button" id="wrong-card-toggle" class="secondary-button">Wrong card? Pick another</button>
+              </div>
+              <div id="wrong-card-panel" class="identity-search" hidden>
+                ${alternateCandidates.length ? `<span>Nearby visual candidates</span>${renderCandidateCards(alternateCandidates)}` : "<span>Search the catalog for the exact printing.</span>"}
+                ${searchBlock}
+              </div>
             </div>`;
           identity.style.display = "flex";
+          const wrongToggle = document.querySelector("#wrong-card-toggle");
+          const wrongPanel = document.querySelector("#wrong-card-panel");
+          if (wrongToggle && wrongPanel) {
+            wrongToggle.addEventListener("click", () => {
+              wrongPanel.hidden = !wrongPanel.hidden;
+            });
+          }
+          bindCandidateButtons(wrongPanel, alternateCandidates);
+        } else if (data.identification && data.identification.catalog_ready) {
+          identity.innerHTML = `
+            <div class="identity-search">
+              <strong>No confident card match</strong>
+              <span>Confirm a nearby candidate or search the English catalog for the exact printing.</span>
+              ${renderCandidateCards(candidates)}
+              ${searchBlock}
+            </div>`;
+          identity.style.display = "flex";
+          bindCandidateButtons(identity, candidates);
         } else {
-          identity.innerHTML = data.identification && data.identification.catalog_ready
-            ? `<div class="identity-search">
-                <strong>No confident card match</strong>
-                <span>Search the English catalog and confirm the exact printing.</span>
-                <div class="card-search-row">
-                  <input id="card-search-query" type="search" placeholder="Card name and number, e.g. Pikachu 065">
-                  <button id="card-search-button" type="button">Search</button>
-                </div>
-                <div class="card-search-results" id="card-search-results"></div>
-              </div>`
-            : `<div><strong>Card catalog is not synced</strong><span>Run drop-sync-card-catalog to enable identification.</span></div>`;
+          identity.innerHTML = `<div><strong>Card catalog is not synced</strong><span>Run drop-sync-card-catalog to enable identification.</span></div>`;
           identity.style.display = "flex";
         }
         bindCardSearch(
@@ -1088,16 +1239,32 @@
         document.querySelector("#grade-label").textContent = prediction.label;
         document.querySelector("#range").textContent =
           `${prediction.low.toFixed(1)}–${prediction.high.toFixed(1)} range · ${prediction.confidence} confidence`;
-        document.querySelector("#metrics").innerHTML = data.categories.map(metric => {
+        const metricsHtml = data.categories.map(metric => {
           const assessed = metric.score !== null && metric.score !== undefined;
           const width = assessed ? Math.max(0, Math.min(100, metric.score * 10)) : 0;
           return `
-            <div class="metric" title="${metric.detail}">
+            <div class="metric">
               <span class="metric-copy"><b>${metric.name}</b><small>${metric.condition}</small></span>
               <div class="bar"><i style="width:${width}%"></i></div>
               <strong>${assessed ? Number(metric.score).toFixed(1) : "—"}</strong>
+              <div class="metric-detail">${escapeHtml(metric.detail || "")}</div>
             </div>`;
         }).join("");
+        const surfaceMetric = data.categories.find(metric => metric.key === "surface");
+        const gate = surfaceMetric && surfaceMetric.score == null
+          ? surfaceGateMessage(data.back_reference_status, data.billing)
+          : null;
+        const gateHtml = gate
+          ? `<div class="surface-gate" id="surface-gate">
+              <div><strong>${escapeHtml(gate.title)}</strong><span>${escapeHtml(gate.body)}</span></div>
+              ${gate.action ? `<button type="button" id="surface-gate-cta">${escapeHtml(gate.action)}</button>` : ""}
+            </div>`
+          : "";
+        document.querySelector("#metrics").innerHTML = metricsHtml + gateHtml;
+        const surfaceCta = document.querySelector("#surface-gate-cta");
+        if (surfaceCta) {
+          surfaceCta.addEventListener("click", openCleanBackSettings);
+        }
         const warnings = data.warnings.length ? data.warnings.join(" ") : "Photo quality checks passed.";
         document.querySelector("#warnings").textContent = warnings;
         document.querySelector("#caveat").textContent = `${prediction.method}. ${prediction.caveat}`;
@@ -1221,11 +1388,18 @@
                   <div class="signal"><b>Edge evidence</b><span>${defectCounts.edges} findings (${Number(defectCounts.edge_weight || 0).toFixed(2)} severity-weighted) · confirmed pale/whitening pixels: ${edgeText}. Medium findings count one-quarter of high findings.</span></div>
                   <div class="signal"><b>Surface evidence</b><span>${signals.surface.reference_compared
                     ? `Clean reference compared · ${signals.surface.anomaly_count} candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
-                    : signals.surface.localized_border_inspection
-                      ? `Back printed-interior inspection · ${signals.surface.anomaly_count} scratch/crease candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
-                      : signals.surface.generic_inspection
-                        ? `${report.side} generic interior inspection · ${signals.surface.anomaly_count} scratch/crease candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
-                        : "Not assessed — requires a saved clean back reference and usable back photo."} Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
+                    : report.side === "Back"
+                      ? (
+                        data.back_reference_status === "align_failed"
+                          ? "Not assessed — clean back saved but alignment failed for this photo."
+                          : data.back_reference_status === "missing"
+                            ? "Not assessed — save a clean back reference in Settings first."
+                            : data.back_reference_status === "no_back"
+                              ? "Not assessed — add a back photo to use the saved clean reference."
+                              : "Not assessed — requires a saved clean back reference and usable back photo."
+                      )
+                      : "Front Surface is not graded; corner and edge zones are still inspected."
+                  } Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
                 </div>
                 ${findings}
               </div>

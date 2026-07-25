@@ -446,10 +446,12 @@ def category_subgrades(
                 else "Not assessed"
             ),
             "detail": (
-                "Visually inspected for localized scratches and creases; "
-                "aligned clean references are used when available."
+                "Back surface compared against your saved clean reference for "
+                "localized scratches and creases."
                 if surface_assessed
-                else "Requires a saved clean back reference and usable back photo."
+                else "Not graded until Settings → Clean back calibration has a "
+                "sharp undamaged Pokémon back and this scan includes an "
+                "alignable back photo."
             ),
         },
     )

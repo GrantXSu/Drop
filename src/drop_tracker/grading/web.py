@@ -439,17 +439,23 @@ async def grade_card(
             if back
             else None
         )
-        back_reference_applied = False
-        if back_analysis:
-            clean_back = get_back_reference(request.state.device_id)
-            if clean_back:
-                back_reference_applied = apply_back_reference(
-                    back_analysis, clean_back
-                )
+        clean_back = get_back_reference(request.state.device_id)
+        if back_analysis is None:
+            back_reference_status = "no_back" if clean_back else "missing"
+            back_reference_applied = False
+        elif clean_back is None:
+            back_reference_status = "missing"
+            back_reference_applied = False
+        elif apply_back_reference(back_analysis, clean_back):
+            back_reference_status = "applied"
+            back_reference_applied = True
+        else:
+            back_reference_status = "align_failed"
+            back_reference_applied = False
         catalog_path = Path(
             os.getenv("CARD_CATALOG", str(DEFAULT_CATALOG_PATH))
         )
-        matches = identify_card(front_analysis.image, catalog_path)
+        matches = identify_card(front_analysis.image, catalog_path)[:5]
         if card_id:
             identified_card = get_card(card_id, catalog_path)
             if identified_card is None:
@@ -506,6 +512,21 @@ async def grade_card(
         warnings.extend(f"Back: {warning}" for warning in back_analysis.warnings)
     else:
         warnings.append("Add a back photo for a more complete estimate.")
+    if back_reference_status == "missing":
+        warnings.append(
+            "Surface was not graded. Save one sharp, undamaged Pokémon back in "
+            "Settings → Clean back calibration."
+        )
+    elif back_reference_status == "no_back":
+        warnings.append(
+            "Surface was not graded. Add a back photo to use your saved clean "
+            "back reference."
+        )
+    elif back_reference_status == "align_failed":
+        warnings.append(
+            "Surface was not graded. The clean back reference could not be "
+            "aligned to this photo — retake the back or recalibrate."
+        )
 
     prediction_payload = prediction.to_dict()
     if warnings:
@@ -550,6 +571,7 @@ async def grade_card(
         },
         "billing": billing_after,
         "back_reference_applied": back_reference_applied,
+        "back_reference_status": back_reference_status,
     }
 
 

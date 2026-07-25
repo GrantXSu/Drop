@@ -105,6 +105,50 @@ def front_photo_bytes() -> bytes:
     return encoded.tobytes()
 
 
+def clean_back_reference_bytes() -> bytes:
+    """High-frequency clean back that passes reference upload quality gates."""
+    rng = np.random.default_rng(11)
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    cv2.rectangle(card, (35, 40), (CARD_WIDTH - 36, CARD_HEIGHT - 41), (220, 145, 40), -1)
+    noise = rng.integers(-35, 36, size=card.shape, dtype=np.int16)
+    card = np.clip(card.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    yy, xx = np.mgrid[0:CARD_HEIGHT, 0:CARD_WIDTH]
+    checker = ((xx // 3 + yy // 3) % 2) * 25
+    card = np.clip(card.astype(np.int16) + checker[..., None], 0, 255).astype(np.uint8)
+    cv2.circle(card, (CARD_WIDTH // 2, CARD_HEIGHT // 2), 210, (230, 230, 230), -1)
+    cv2.circle(card, (CARD_WIDTH // 2, CARD_HEIGHT // 2), 120, (40, 40, 200), 8)
+    for y in range(60, CARD_HEIGHT - 60, 6):
+        cv2.line(card, (60, y), (CARD_WIDTH - 60, y), (30, 30, 30), 1)
+    for x in range(60, CARD_WIDTH - 60, 8):
+        cv2.line(card, (x, 60), (x, CARD_HEIGHT - 60), (25, 25, 25), 1)
+    cv2.putText(
+        card,
+        "Pokemon",
+        (180, 180),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.6,
+        (250, 250, 250),
+        3,
+        cv2.LINE_AA,
+    )
+    background = np.full((1500, 1500, 3), (25, 25, 25), dtype=np.uint8)
+    source = np.float32(
+        [[0, 0], [CARD_WIDTH - 1, 0], [CARD_WIDTH - 1, CARD_HEIGHT - 1], [0, CARD_HEIGHT - 1]]
+    )
+    destination = np.float32([[300, 130], [1050, 160], [1010, 1320], [270, 1280]])
+    transform = cv2.getPerspectiveTransform(source, destination)
+    warped = cv2.warpPerspective(card, transform, (1500, 1500))
+    mask = cv2.warpPerspective(
+        np.full((CARD_HEIGHT, CARD_WIDTH), 255, dtype=np.uint8),
+        transform,
+        (1500, 1500),
+    )
+    background[mask > 0] = warped[mask > 0]
+    success, encoded = cv2.imencode(".png", background)
+    assert success
+    return encoded.tobytes()
+
+
 def test_analyze_image_extracts_normalized_features() -> None:
     analysis = analyze_image(card_image_bytes(), side="front")
 
@@ -847,7 +891,12 @@ def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
     assert payload["categories"][-1]["score"] is None
     assert payload["prediction"]["label"]
     assert payload["billing"]["remaining_today"] == 2
-    assert "Add a back photo" in payload["warnings"][-1]
+    assert payload["back_reference_status"] == "missing"
+    assert payload["back_reference_applied"] is False
+    assert any("Add a back photo" in warning for warning in payload["warnings"])
+    assert any("Surface was not graded" in warning for warning in payload["warnings"])
+    assert isinstance(payload["identification"]["candidates"], list)
+    assert len(payload["identification"]["candidates"]) <= 5
     assert payload["visual_reports"][0]["side"] == "Front"
     assert payload["visual_reports"][0]["image"].startswith("data:image/jpeg;base64,")
     assert payload["visual_reports"][0]["card_image"].startswith(
@@ -906,7 +955,17 @@ def test_ui_collapses_detected_findings() -> None:
     assert 'id="prescan-card-query"' in response.text
     assert 'id="developer-password"' not in response.text
     assert 'id="back-reference-input"' in response.text
+    assert 'id="clean-back-card"' in response.text
     assert "Clean back calibration" in response.text
+    assert "Settings → Clean back calibration" in response.text
+    assert "surface-gate" in response.text
+    assert "Calibrate clean back" in response.text
+    assert "Wrong card? Pick another" in response.text
+    assert "data-candidate-index" in response.text
+    assert "data-history-index" in response.text
+    assert "category.name}" in response.text
+    assert "openCleanBackSettings" in response.text
+    assert "back_reference_status" in response.text
 
     assert TestClient(app).get("/cards").status_code == 200
     assert TestClient(app).get("/settings").status_code == 200
@@ -1118,6 +1177,70 @@ def test_clean_back_reference_persists_per_device(tmp_path: Path) -> None:
     delete_back_reference("device-1", database)
     assert get_back_reference("device-1", database) is None
     assert not usage_status("device-1", database)["back_reference_ready"]
+
+
+def test_reference_api_and_grade_surface_status(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("CARD_GRADER_MODEL", str(tmp_path / "missing.joblib"))
+    monkeypatch.setenv("CARDLENS_BILLING_DB", str(tmp_path / "billing.sqlite"))
+    client = TestClient(app)
+
+    rejected = client.post(
+        "/api/reference/back",
+        files={"image": ("back.jpg", card_image_bytes(), "image/jpeg")},
+    )
+    assert rejected.status_code == 422
+
+    reference = clean_back_reference_bytes()
+    saved = client.post(
+        "/api/reference/back",
+        files={"image": ("back.png", reference, "image/png")},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["saved"] is True
+    assert saved.json()["billing"]["back_reference_ready"] is True
+
+    front_only = client.post(
+        "/api/grade",
+        files={"front": ("front.jpg", card_image_bytes(), "image/jpeg")},
+        data={"scan_id": "surface-front-only"},
+    )
+    assert front_only.status_code == 200
+    front_payload = front_only.json()
+    assert front_payload["back_reference_status"] == "no_back"
+    assert front_payload["categories"][-1]["score"] is None
+    assert any("Add a back photo" in warning for warning in front_payload["warnings"])
+
+    graded = client.post(
+        "/api/grade",
+        files={
+            "front": ("front.jpg", card_image_bytes(), "image/jpeg"),
+            "back": ("back.png", reference, "image/png"),
+        },
+        data={"scan_id": "surface-with-back"},
+    )
+    assert graded.status_code == 200
+    payload = graded.json()
+    assert payload["back_reference_status"] == "applied"
+    assert payload["back_reference_applied"] is True
+    assert payload["categories"][-1]["score"] is not None
+    assert 1.0 <= payload["categories"][-1]["score"] <= 10.0
+
+    cleared = client.delete("/api/reference/back")
+    assert cleared.status_code == 200
+    assert cleared.json()["billing"]["back_reference_ready"] is False
+
+    without_reference = client.post(
+        "/api/grade",
+        files={
+            "front": ("front.jpg", card_image_bytes(), "image/jpeg"),
+            "back": ("back.jpg", back_photo_bytes(), "image/jpeg"),
+        },
+        data={"scan_id": "surface-missing-reference"},
+    )
+    assert without_reference.status_code == 200
+    missing_payload = without_reference.json()
+    assert missing_payload["back_reference_status"] == "missing"
+    assert missing_payload["categories"][-1]["score"] is None
 
 
 def test_clean_back_reference_replaces_generic_surface_findings() -> None:

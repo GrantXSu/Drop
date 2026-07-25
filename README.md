@@ -324,6 +324,10 @@ Pokémon back at least 1000 pixels on its short edge. CardLens stores
 the normalized reference for that signed device, aligns future backs to it, and
 uses reference differences for back corners, edges, and surface while
 suppressing the printed swirl and Poké Ball artwork.
+Until that reference aligns, Surface stays **Not assessed** and the Analyze
+report shows a callout with a direct link to calibration. Grade responses also
+include `back_reference_status` (`missing`, `no_back`, `align_failed`, or
+`applied`) so the UI can explain why Surface was skipped.
 Front Surface grading is intentionally disabled. Front generic analysis still
 inspects 12% corner zones and outer edge bands, and confidently matched
 references replace those generic corner/edge findings with aligned
