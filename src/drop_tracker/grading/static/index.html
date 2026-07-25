@@ -113,6 +113,15 @@
     .drag-guide.vertical::before { content:""; position:absolute; inset:0 -12px; }
     .drag-guide.horizontal::before { content:""; position:absolute; inset:-12px 0; }
     .guide-apply-actions { display:flex; justify-content:center; gap:8px; padding:10px; background:#f5f7ff; }
+    .source-adjust-canvas { position:relative; width:100%; overflow:hidden; background:#e8e5de; touch-action:none; }
+    .source-adjust-canvas[hidden],.boundary-actions[hidden] { display:none; }
+    .source-adjust-canvas img { display:block; width:100%; height:100%; max-height:none; object-fit:fill; pointer-events:none; }
+    .source-adjust-canvas svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+    .boundary-polygon { fill:#43ff6617; stroke:#43ff66; stroke-width:5; vector-effect:non-scaling-stroke; }
+    .boundary-handle { fill:#43ff66; stroke:#14251a; stroke-width:3; vector-effect:non-scaling-stroke; cursor:move; touch-action:none; }
+    .boundary-actions { display:flex; justify-content:center; gap:8px; padding:10px; background:#f5f7ff; }
+    .boundary-editor { margin:0 0 14px; }
+    .boundary-editor p { margin:8px 0 0; color:var(--muted); font-size:13px; }
     .camera-modal { position:fixed; z-index:50; inset:0; display:grid; place-items:center; padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom)); background:#060913e8; }
     .camera-modal[hidden] { display:none; }
     .camera-sheet { width:min(620px,100%); max-height:100%; overflow:auto; border-radius:18px; background:var(--paper); }
@@ -242,7 +251,7 @@
       .card-search-result { grid-template-columns:38px 1fr; }
       .card-search-result button { grid-column:1/-1; width:100%; }
       .guide-editor,.guide-apply-actions { padding-left:9px; padding-right:9px; }
-      .guide-actions button,.guide-apply-actions button { width:100%; }
+      .guide-actions button,.guide-apply-actions button,.boundary-actions button { width:100%; }
       .camera-sheet { width:100%; border-radius:0; }
       .pricing-modal { padding:0; }
       .pricing-sheet { width:100%; height:100%; max-height:none; border-radius:0; padding:14px; }
@@ -492,6 +501,7 @@
     const errorBox = document.querySelector("#error");
     const results = document.querySelector("#results");
     const manualGuides = {};
+    const manualBoundaries = {};
     const capturedFiles = { front:null, back:null };
     let selectedCardId = null;
     let cameraStream = null;
@@ -570,6 +580,7 @@
         capturedFiles[side] = null;
         resetCameraSlot(side);
         delete manualGuides[side];
+        delete manualBoundaries[side];
         if (side === "front") {
           currentScanId = newScanId();
         }
@@ -635,6 +646,7 @@
     function showCapturedPhoto(side, file, source, width, height) {
       capturedFiles[side] = file;
       delete manualGuides[side];
+      delete manualBoundaries[side];
       if (side === "front") currentScanId = newScanId();
       const container = document.querySelector(`#${side}-drop`);
       container.querySelector("img").src = source;
@@ -1014,6 +1026,9 @@
           form.append(`${side}_${name}_mm`, value);
         });
       });
+      Object.entries(manualBoundaries).forEach(([side, boundary]) => {
+        form.append(`${side}_boundary`, JSON.stringify(boundary));
+      });
       scan.disabled = true;
       scan.textContent = "Inspecting pixels…";
       try {
@@ -1113,6 +1128,13 @@
           const sideKey = report.side.toLowerCase();
           const guides = report.centering.guides;
           const dimensions = report.centering.card_dimensions;
+          const sourceDimensions = report.source_dimensions;
+          const sourceBoundary = manualBoundaries[sideKey] || report.source_boundary;
+          const boundaryPoints = sourceBoundary
+            .map(point => `${point[0]},${point[1]}`).join(" ");
+          const handleRadius = Math.max(
+            10, Math.min(sourceDimensions.width, sourceDimensions.height) * 0.015
+          );
           const line = (name, orientation, position) => `
             <div class="drag-guide ${orientation}" data-guide="${name}"
               data-mm="${report.centering.distance_mm[name]}"
@@ -1121,8 +1143,32 @@
             </div>`;
           return `
             <article class="evidence-card">
-              <img src="${report.source_image}" alt="${report.side} original upload with detected physical card boundary">
+              <div class="source-stage">
+                <img class="source-annotated-image" src="${report.source_image}" alt="${report.side} original upload with detected physical card boundary">
+                <div class="source-adjust-canvas" data-side="${sideKey}"
+                  style="aspect-ratio:${sourceDimensions.width}/${sourceDimensions.height}" hidden>
+                  <img src="${report.raw_source_image}" alt="${report.side} original upload for boundary adjustment">
+                  <svg viewBox="0 0 ${sourceDimensions.width} ${sourceDimensions.height}">
+                    <polygon class="boundary-polygon" points="${boundaryPoints}"></polygon>
+                    ${sourceBoundary.map((point, index) => `
+                      <circle class="boundary-handle" data-boundary-index="${index}"
+                        cx="${point[0]}" cy="${point[1]}" r="${handleRadius}"></circle>
+                    `).join("")}
+                  </svg>
+                </div>
+                <div class="boundary-actions" hidden>
+                  <button type="button" class="apply-boundary">Apply boundary and reprocess</button>
+                  <button type="button" class="cancel-boundary secondary-button">Cancel</button>
+                </div>
+              </div>
               <p class="image-caption">Original upload · green outline is the farthest physical edge used</p>
+              <div class="guide-editor boundary-editor" data-side="${sideKey}">
+                <div class="guide-actions">
+                  <button type="button" class="enable-boundary">Adjust physical card corners</button>
+                  ${manualBoundaries[sideKey] ? `<button type="button" class="reset-boundary secondary-button">Use automatic card boundary</button>` : ""}
+                </div>
+                <p>Enable adjustment, then drag all four corner handles around the physical card before applying.</p>
+              </div>
               <div class="measurement-stage">
                 <img class="annotated-image" src="${report.image}" alt="${report.side} card with centering and defect annotations">
                 <div class="guide-canvas" data-side="${sideKey}" hidden>
@@ -1166,6 +1212,82 @@
               </div>
             </article>`;
         }).join("");
+        document.querySelectorAll(".enable-boundary").forEach(button => {
+          button.addEventListener("click", () => {
+            const card = button.closest(".evidence-card");
+            card.querySelector(".source-annotated-image").hidden = true;
+            card.querySelector(".source-adjust-canvas").hidden = false;
+            card.querySelector(".boundary-actions").hidden = false;
+          });
+        });
+        document.querySelectorAll(".boundary-handle").forEach(handle => {
+          handle.addEventListener("pointerdown", event => {
+            handle.setPointerCapture(event.pointerId);
+          });
+          handle.addEventListener("pointermove", event => {
+            if (!handle.hasPointerCapture(event.pointerId)) return;
+            const canvas = handle.closest(".source-adjust-canvas");
+            const svg = canvas.querySelector("svg");
+            const bounds = svg.getBoundingClientRect();
+            const viewBox = svg.viewBox.baseVal;
+            const x = Math.max(
+              0,
+              Math.min(
+                viewBox.width - 1,
+                (event.clientX - bounds.left) / bounds.width * viewBox.width,
+              ),
+            );
+            const y = Math.max(
+              0,
+              Math.min(
+                viewBox.height - 1,
+                (event.clientY - bounds.top) / bounds.height * viewBox.height,
+              ),
+            );
+            handle.setAttribute("cx", x);
+            handle.setAttribute("cy", y);
+            const points = [...svg.querySelectorAll(".boundary-handle")]
+              .sort((left, right) =>
+                Number(left.dataset.boundaryIndex) - Number(right.dataset.boundaryIndex)
+              )
+              .map(point => `${point.getAttribute("cx")},${point.getAttribute("cy")}`)
+              .join(" ");
+            svg.querySelector(".boundary-polygon").setAttribute("points", points);
+          });
+        });
+        document.querySelectorAll(".apply-boundary").forEach(button => {
+          button.addEventListener("click", () => {
+            const canvas = button.closest(".source-stage").querySelector(
+              ".source-adjust-canvas"
+            );
+            const points = [...canvas.querySelectorAll(".boundary-handle")]
+              .sort((left, right) =>
+                Number(left.dataset.boundaryIndex) - Number(right.dataset.boundaryIndex)
+              )
+              .map(point => [
+                Number(point.getAttribute("cx")),
+                Number(point.getAttribute("cy")),
+              ]);
+            manualBoundaries[canvas.dataset.side] = points;
+            scan.click();
+          });
+        });
+        document.querySelectorAll(".cancel-boundary").forEach(button => {
+          button.addEventListener("click", () => {
+            const card = button.closest(".evidence-card");
+            card.querySelector(".source-annotated-image").hidden = false;
+            card.querySelector(".source-adjust-canvas").hidden = true;
+            card.querySelector(".boundary-actions").hidden = true;
+          });
+        });
+        document.querySelectorAll(".reset-boundary").forEach(button => {
+          button.addEventListener("click", () => {
+            delete manualBoundaries[
+              button.closest(".boundary-editor").dataset.side
+            ];
+            scan.click();
+          });
+        });
         document.querySelectorAll(".enable-guides").forEach(button => {
           button.addEventListener("click", () => {
             const card = button.closest(".evidence-card");

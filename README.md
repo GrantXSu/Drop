@@ -156,6 +156,13 @@ directly on the normalized card image, then choose **Apply and recalculate**.
 Adjustment mode is off by default. The updated guides, ratios, centering
 subgrade, and overall estimate are recomputed from the explicit line positions.
 
+If the original-upload outline cuts through the card, choose **Adjust physical
+card corners**. Drag the four handles around the actual cardstock and apply.
+CardLens validates the quadrilateral, reruns perspective correction from the
+original photo, then repeats identification, condition detection, centering,
+and grading. Physical-boundary adjustment and inner centering-guide adjustment
+remain independent.
+
 For a single development command that opens the browser and reloads when source
 files change:
 

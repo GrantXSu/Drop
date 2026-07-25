@@ -351,10 +351,32 @@ def _pokemon_back_contour(image: np.ndarray) -> Optional[np.ndarray]:
 
 
 def normalize_card(
-    image: np.ndarray, side: Optional[str] = None
+    image: np.ndarray,
+    side: Optional[str] = None,
+    manual_boundary: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, Tuple[str, ...], np.ndarray]:
     """Detect, perspective-correct, and orient a card image."""
-    contour = _pokemon_back_contour(image) if side == "back" else None
+    contour = None
+    warnings = []
+    if manual_boundary is not None:
+        candidate = np.asarray(manual_boundary, dtype=np.float32)
+        if candidate.shape != (4, 2) or not np.isfinite(candidate).all():
+            raise CardImageError("Manual card boundary must contain four valid points.")
+        source = _order_points(candidate)
+        height, width = image.shape[:2]
+        if (
+            (source[:, 0] < 0).any()
+            or (source[:, 0] >= width).any()
+            or (source[:, 1] < 0).any()
+            or (source[:, 1] >= height).any()
+        ):
+            raise CardImageError("Manual card boundary points must stay inside the image.")
+        if cv2.contourArea(source) < width * height * 0.08:
+            raise CardImageError("Manual card boundary is too small.")
+        contour = source
+        warnings.append("Card boundary was manually adjusted.")
+    else:
+        contour = _pokemon_back_contour(image) if side == "back" else None
     if contour is None and side == "front":
         color_candidates = [
             candidate
@@ -373,7 +395,6 @@ def normalize_card(
         contour = _foreground_card_contour(image)
     if contour is None:
         contour = _card_contour(image)
-    warnings = []
     if contour is None:
         height, width = image.shape[:2]
         ratio = min(height, width) / max(height, width)
@@ -1201,9 +1222,15 @@ def source_boundary_image(analysis: CardAnalysis) -> np.ndarray:
     return canvas
 
 
-def analyze_image(data: bytes, side: Optional[str] = None) -> CardAnalysis:
+def analyze_image(
+    data: bytes,
+    side: Optional[str] = None,
+    manual_boundary: Optional[np.ndarray] = None,
+) -> CardAnalysis:
     source_image = decode_image(data)
-    card, warnings, source_boundary = normalize_card(source_image, side)
+    card, warnings, source_boundary = normalize_card(
+        source_image, side, manual_boundary
+    )
     features, diagnostics = _region_stats(card, side)
     quality_warnings = list(warnings)
     if min(source_image.shape[:2]) < 1000:

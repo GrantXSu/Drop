@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hmac
+import json
 import os
 import threading
 import uuid
@@ -103,6 +104,12 @@ def _visual_report(side: str, analysis: CardAnalysis) -> dict:
     return {
         "side": side,
         "source_image": encode(source_boundary_image(analysis)),
+        "raw_source_image": encode(analysis.source_image),
+        "source_boundary": analysis.source_boundary.tolist(),
+        "source_dimensions": {
+            "width": analysis.source_image.shape[1],
+            "height": analysis.source_image.shape[0],
+        },
         "image": encode(annotated_image(analysis)),
         "card_image": encode(analysis.image),
         "centering": {
@@ -140,6 +147,22 @@ def _confident_catalog_match(matches: list) -> Optional[dict]:
         if margin < 0.08 and confidence < 0.92:
             return None
     return first
+
+
+def _parse_manual_boundary(value: Optional[str]):
+    if value is None:
+        return None
+    try:
+        boundary = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise CardImageError("Manual card boundary is invalid JSON.") from error
+    if (
+        not isinstance(boundary, list)
+        or len(boundary) != 4
+        or any(not isinstance(point, list) or len(point) != 2 for point in boundary)
+    ):
+        raise CardImageError("Manual card boundary must contain four [x, y] points.")
+    return boundary
 
 
 async def _read_upload(upload: UploadFile) -> bytes:
@@ -350,6 +373,8 @@ async def grade_card(
     back: Optional[UploadFile] = File(default=None),
     scan_id: Optional[str] = Form(default=None),
     card_id: Optional[str] = Form(default=None),
+    front_boundary: Optional[str] = Form(default=None),
+    back_boundary: Optional[str] = Form(default=None),
     front_left_mm: Optional[float] = Form(default=None),
     front_right_mm: Optional[float] = Form(default=None),
     front_top_mm: Optional[float] = Form(default=None),
@@ -371,9 +396,19 @@ async def grade_card(
             ),
         )
     try:
-        front_analysis = analyze_image(await _read_upload(front), side="front")
+        front_analysis = analyze_image(
+            await _read_upload(front),
+            side="front",
+            manual_boundary=_parse_manual_boundary(front_boundary),
+        )
         back_analysis = (
-            analyze_image(await _read_upload(back), side="back") if back else None
+            analyze_image(
+                await _read_upload(back),
+                side="back",
+                manual_boundary=_parse_manual_boundary(back_boundary),
+            )
+            if back
+            else None
         )
         back_reference_applied = False
         if back_analysis:

@@ -132,6 +132,22 @@ def test_front_analysis_removes_contrasting_scanner_mat() -> None:
     assert boundary[:, 1].max() < 1200
 
 
+def test_manual_source_boundary_rewarps_card() -> None:
+    boundary = np.float32(
+        [[250, 110], [850, 135], [820, 1135], [225, 1090]]
+    )
+
+    analysis = analyze_image(
+        front_photo_bytes(),
+        side="front",
+        manual_boundary=boundary,
+    )
+
+    assert np.allclose(analysis.source_boundary, boundary)
+    assert "Card boundary was manually adjusted." in analysis.warnings
+    assert analysis.image.shape == (CARD_HEIGHT, CARD_WIDTH, 3)
+
+
 def test_front_analysis_isolates_modern_silver_border() -> None:
     card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (185, 185, 185), dtype=np.uint8)
     cv2.rectangle(card, (28, 30), (CARD_WIDTH - 29, CARD_HEIGHT - 31), (120, 180, 65), -1)
@@ -817,6 +833,10 @@ def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
     assert payload["visual_reports"][0]["card_image"].startswith(
         "data:image/jpeg;base64,"
     )
+    assert payload["visual_reports"][0]["raw_source_image"].startswith(
+        "data:image/jpeg;base64,"
+    )
+    assert len(payload["visual_reports"][0]["source_boundary"]) == 4
     assert payload["visual_reports"][0]["source_image"].startswith("data:image/jpeg;base64,")
     assert "/" in payload["visual_reports"][0]["centering"]["horizontal"]
     assert set(payload["visual_reports"][0]["condition_signals"]) == {
@@ -849,6 +869,8 @@ def test_ui_collapses_detected_findings() -> None:
     assert 'id="native-camera-trigger"' in response.text
     assert "Analyze captured card" in response.text
     assert "height:100dvh" in response.text
+    assert "Adjust physical card corners" in response.text
+    assert 'class="boundary-handle"' in response.text
     assert "3 card analyses per UTC day" in response.text
     assert "$9.99" in response.text
     assert "$59.99" in response.text
