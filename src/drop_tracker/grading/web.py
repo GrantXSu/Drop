@@ -81,7 +81,13 @@ async def _read_upload(upload: UploadFile) -> bytes:
 
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIRECTORY / "index.html")
+    return FileResponse(
+        STATIC_DIRECTORY / "index.html",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/api/status")

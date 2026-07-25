@@ -410,5 +410,6 @@ def test_ui_collapses_detected_findings() -> None:
     response = TestClient(app).get("/")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"].startswith("no-store")
     assert 'class="findings-dropdown"' in response.text
     assert "Detected findings (" in response.text
