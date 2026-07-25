@@ -977,7 +977,9 @@
           const match = data.identification.match;
           const matchDescription = match.match_method === "manual"
             ? "Manually confirmed"
-            : `${Math.round(match.confidence * 100)}% visual confidence`;
+            : match.match_method === "ml_visual"
+              ? `ML artwork match · ${Math.round(match.confidence * 100)}% confidence`
+              : `${Math.round(match.confidence * 100)}% visual confidence`;
           identity.innerHTML = `
             ${match.image_url ? `<img src="${match.image_url}" alt="${match.name} reference image">` : ""}
             <div><small>Catalog match</small><strong>${match.name}</strong>

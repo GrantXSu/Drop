@@ -241,6 +241,13 @@ illustrated printings. For confident matches, the clean reference layout
 calibrates expected print placement and checks for localized surface anomalies
 without moving the detected border guides.
 
+Catalog sync also downloads the Apache-2.0 ONNX Model Zoo MobileNetV2 model
+(about 14 MB), verifies its SHA-256 checksum, and stores normalized learned
+artwork embeddings for each usable reference. Matching reranks up to 400 visual
+candidates using embedding cosine similarity, ORB keypoints, perceptual hash,
+and color. The model is cached under `data/grading/models/`; if it is unavailable
+CardLens falls back to the non-ML matcher.
+
 When a TCGdex record has metadata but no English artwork URL, including some
 Trainer Gallery cards, CardLens falls back to the Pokémon TCG image CDN for
 search thumbnails and visual profiling. Failed images show an explicit

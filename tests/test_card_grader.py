@@ -515,7 +515,9 @@ def test_centering_uses_psa_and_beckett_thresholds() -> None:
     assert centering_standards(psa_limit_front, psa_limit_back)["bgs"] < 10.0
 
 
-def test_catalog_identifies_matching_reference(tmp_path: Path) -> None:
+def test_catalog_identifies_matching_reference(
+    monkeypatch, tmp_path: Path
+) -> None:
     database = tmp_path / "catalog.sqlite"
     connection = _connect(database)
     perceptual_hash, color_signature, reference_features = _reference_profile(
@@ -531,7 +533,7 @@ def test_catalog_identifies_matching_reference(tmp_path: Path) -> None:
     )
     connection.execute(
         """
-        INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "sv-test-1",
@@ -544,6 +546,7 @@ def test_catalog_identifies_matching_reference(tmp_path: Path) -> None:
             perceptual_hash,
             color_signature,
             reference_features,
+            json.dumps([1.0, 0.0]),
             "now",
         ),
     )
@@ -551,11 +554,18 @@ def test_catalog_identifies_matching_reference(tmp_path: Path) -> None:
     connection.close()
 
     analysis = analyze_image(card_image_bytes(), side="front")
+    monkeypatch.setattr(
+        catalog_module,
+        "visual_embedding",
+        lambda image, allow_download=False: np.array([1.0, 0.0]),
+    )
     matches = identify_card(analysis.image, database)
 
     assert matches[0]["id"] == "sv-test-1"
     assert matches[0]["confidence"] == 1.0
     assert matches[0]["keypoint_similarity"] >= 0.0
+    assert matches[0]["embedding_similarity"] == 1.0
+    assert matches[0]["match_method"] == "ml_visual"
 
 
 def test_missing_tcgdex_trainer_gallery_image_uses_fallback_cdn() -> None:
@@ -850,7 +860,7 @@ def test_manual_catalog_search_and_confirmation(monkeypatch, tmp_path: Path) -> 
         ("swsh1", "swsh", "Sword & Shield", "2020-02-07", 202, 202, None, None),
     )
     connection.execute(
-        "INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             "swsh1-65",
             "swsh",
@@ -859,6 +869,7 @@ def test_manual_catalog_search_and_confirmation(monkeypatch, tmp_path: Path) -> 
             "065",
             "Pikachu",
             "https://example.com/pikachu",
+            None,
             None,
             None,
             None,

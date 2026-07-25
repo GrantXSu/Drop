@@ -18,6 +18,7 @@ import httpx
 import numpy as np
 
 from .features import CardAnalysis, analyze_image
+from .embeddings import cosine_similarity, visual_embedding
 
 
 API_BASE = "https://api.tcgdex.net/v2/en"
@@ -94,6 +95,7 @@ def _connect(path: Path) -> sqlite3.Connection:
             perceptual_hash TEXT,
             color_signature TEXT,
             reference_features TEXT,
+            visual_embedding TEXT,
             synced_at TEXT NOT NULL,
             FOREIGN KEY(set_id) REFERENCES sets(id)
         );
@@ -101,6 +103,11 @@ def _connect(path: Path) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS cards_set_idx ON cards(set_id);
         """
     )
+    card_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(cards)")
+    }
+    if "visual_embedding" not in card_columns:
+        connection.execute("ALTER TABLE cards ADD COLUMN visual_embedding TEXT")
     return connection
 
 
@@ -130,8 +137,7 @@ def _color_signature(image: np.ndarray) -> List[float]:
     return [round(float(value), 6) for value in histogram.reshape(-1)]
 
 
-def _reference_profile(data: bytes) -> Tuple[str, str, str]:
-    analysis = analyze_image(data, side="front")
+def _profile_from_analysis(analysis: CardAnalysis) -> Tuple[str, str, str]:
     features = {
         name: analysis.features[name]
         for name in (
@@ -159,7 +165,13 @@ def _reference_profile(data: bytes) -> Tuple[str, str, str]:
     )
 
 
-def _download_profile(card: Dict[str, str]) -> Tuple[str, Optional[Tuple[str, str, str]], Optional[str]]:
+def _reference_profile(data: bytes) -> Tuple[str, str, str]:
+    return _profile_from_analysis(analyze_image(data, side="front"))
+
+
+def _download_profile(
+    card: Dict[str, str],
+) -> Tuple[str, Optional[Tuple[str, str, str, Optional[str]]], Optional[str]]:
     image_base = card.get("image")
     image_url = _image_asset_url(
         image_base,
@@ -174,7 +186,17 @@ def _download_profile(card: Dict[str, str]) -> Tuple[str, Optional[Tuple[str, st
             headers={"User-Agent": USER_AGENT},
         )
         response.raise_for_status()
-        return card["id"], _reference_profile(response.content), None
+        analysis = analyze_image(response.content, side="front")
+        embedding = visual_embedding(analysis.image, allow_download=True)
+        embedding_json = (
+            json.dumps(
+                [round(float(value), 7) for value in embedding],
+                separators=(",", ":"),
+            )
+            if embedding is not None
+            else None
+        )
+        return card["id"], (*_profile_from_analysis(analysis), embedding_json), None
     except (httpx.HTTPError, ValueError) as error:
         return card["id"], None, str(error)
 
@@ -285,7 +307,8 @@ def sync_catalog(
                     if with_images:
                         existing = connection.execute(
                             """
-                            SELECT perceptual_hash, reference_features
+                            SELECT perceptual_hash, reference_features,
+                                   visual_embedding
                             FROM cards WHERE id = ?
                             """,
                             (card["id"],),
@@ -300,6 +323,7 @@ def sync_catalog(
                             or not existing["perceptual_hash"]
                             or "centering_distances" not in reference
                             or "reference_thumbnail" not in reference
+                            or not existing["visual_embedding"]
                         ):
                             cards_to_profile.append(
                                 {
@@ -326,7 +350,8 @@ def sync_catalog(
                         UPDATE cards SET
                             perceptual_hash = ?,
                             color_signature = ?,
-                            reference_features = ?
+                            reference_features = ?,
+                            visual_embedding = ?
                         WHERE id = ?
                         """,
                         (*profile, card_id),
@@ -342,6 +367,9 @@ def sync_catalog(
     profile_count = connection.execute(
         "SELECT COUNT(*) FROM cards WHERE perceptual_hash IS NOT NULL"
     ).fetchone()[0]
+    embedding_count = connection.execute(
+        "SELECT COUNT(*) FROM cards WHERE visual_embedding IS NOT NULL"
+    ).fetchone()[0]
     connection.close()
     return {
         "database": str(path),
@@ -349,6 +377,7 @@ def sync_catalog(
         "sets": set_count,
         "cards": card_count,
         "visual_profiles": profile_count,
+        "ml_embeddings": embedding_count,
         "new_profiles": completed,
         "failures": failures[:20],
         "failure_count": len(failures),
@@ -421,7 +450,8 @@ def identify_card(
     rows = connection.execute(
         """
         SELECT id, series_id, set_id, set_name, local_id, name, image_url,
-               perceptual_hash, color_signature, reference_features
+               perceptual_hash, color_signature, reference_features,
+               visual_embedding
         FROM cards
         WHERE perceptual_hash IS NOT NULL AND color_signature IS NOT NULL
         """
@@ -434,21 +464,38 @@ def identify_card(
         scored.append((score, hamming, color_distance, row))
     connection.close()
     scored.sort(key=lambda item: item[0])
+    has_embeddings = any(row["visual_embedding"] for row in rows)
+    query_embedding = (
+        visual_embedding(image, allow_download=True) if has_embeddings else None
+    )
     reranked = []
-    for score, hamming, color_distance, row in scored[: max(80, limit)]:
+    for score, hamming, color_distance, row in scored[: max(400, limit)]:
         reference = (
             json.loads(row["reference_features"])
             if row["reference_features"]
             else None
         )
         keypoint_similarity = _artwork_keypoint_similarity(image, reference)
+        embedding_similarity = (
+            cosine_similarity(
+                query_embedding,
+                json.loads(row["visual_embedding"]),
+            )
+            if query_embedding is not None and row["visual_embedding"]
+            else 0.0
+        )
+        embedding_evidence = float(
+            np.clip((embedding_similarity - 0.55) / 0.45, 0.0, 1.0)
+        )
         reranked.append(
             (
-                score - keypoint_similarity * 20.0,
+                score - keypoint_similarity * 18.0 - embedding_evidence * 24.0,
                 score,
                 hamming,
                 color_distance,
                 keypoint_similarity,
+                embedding_similarity,
+                embedding_evidence,
                 reference,
                 row,
             )
@@ -462,6 +509,8 @@ def identify_card(
         hamming,
         color_distance,
         keypoint_similarity,
+        embedding_similarity,
+        embedding_evidence,
         reference,
         row,
     ) in reranked[:limit]:
@@ -481,10 +530,13 @@ def identify_card(
                     high_resolution=True,
                 ),
                 "confidence": round(confidence, 3),
-                "match_method": "visual",
+                "match_method": (
+                    "ml_visual" if embedding_evidence >= 0.50 else "visual"
+                ),
                 "hash_distance": hamming,
                 "color_distance": round(color_distance, 3),
                 "keypoint_similarity": round(keypoint_similarity, 3),
+                "embedding_similarity": round(embedding_similarity, 3),
                 "reference_features": reference,
             }
         )
