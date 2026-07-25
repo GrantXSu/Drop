@@ -319,6 +319,45 @@ def _histogram_distance(first: Sequence[float], second: Sequence[float]) -> floa
     return float(np.abs(np.asarray(first) - np.asarray(second)).sum())
 
 
+def _artwork_keypoint_similarity(
+    image: np.ndarray, reference: Optional[Dict[str, object]]
+) -> float:
+    if not reference or not reference.get("reference_thumbnail"):
+        return 0.0
+    try:
+        encoded = base64.b64decode(
+            str(reference["reference_thumbnail"]), validate=True
+        )
+    except (binascii.Error, ValueError, TypeError):
+        return 0.0
+    thumbnail = cv2.imdecode(np.frombuffer(encoded, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+    if thumbnail is None:
+        return 0.0
+    observed = cv2.resize(
+        cv2.cvtColor(image, cv2.COLOR_BGR2GRAY),
+        (thumbnail.shape[1], thumbnail.shape[0]),
+        interpolation=cv2.INTER_AREA,
+    )
+    detector = cv2.ORB_create(nfeatures=900, fastThreshold=12)
+    _, observed_descriptors = detector.detectAndCompute(observed, None)
+    _, reference_descriptors = detector.detectAndCompute(thumbnail, None)
+    if observed_descriptors is None or reference_descriptors is None:
+        return 0.0
+    pairs = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(
+        observed_descriptors, reference_descriptors, k=2
+    )
+    good = sum(
+        1
+        for pair in pairs
+        if len(pair) == 2 and pair[0].distance < 0.75 * pair[1].distance
+    )
+    expected = max(
+        15.0,
+        min(len(observed_descriptors), len(reference_descriptors)) * 0.20,
+    )
+    return float(np.clip(good / expected, 0.0, 1.0))
+
+
 def identify_card(
     image: np.ndarray,
     path: Path = DEFAULT_CATALOG_PATH,
@@ -349,10 +388,38 @@ def identify_card(
         scored.append((score, hamming, color_distance, row))
     connection.close()
     scored.sort(key=lambda item: item[0])
+    reranked = []
+    for score, hamming, color_distance, row in scored[: max(80, limit)]:
+        reference = (
+            json.loads(row["reference_features"])
+            if row["reference_features"]
+            else None
+        )
+        keypoint_similarity = _artwork_keypoint_similarity(image, reference)
+        reranked.append(
+            (
+                score - keypoint_similarity * 20.0,
+                score,
+                hamming,
+                color_distance,
+                keypoint_similarity,
+                reference,
+                row,
+            )
+        )
+    reranked.sort(key=lambda item: item[0])
 
     results = []
-    for score, hamming, color_distance, row in scored[:limit]:
-        confidence = max(0.0, min(1.0, 1.0 - score / 38.0))
+    for (
+        adjusted_score,
+        score,
+        hamming,
+        color_distance,
+        keypoint_similarity,
+        reference,
+        row,
+    ) in reranked[:limit]:
+        confidence = max(0.0, min(1.0, 1.0 - max(0.0, adjusted_score) / 38.0))
         results.append(
             {
                 "id": row["id"],
@@ -367,11 +434,8 @@ def identify_card(
                 "confidence": round(confidence, 3),
                 "hash_distance": hamming,
                 "color_distance": round(color_distance, 3),
-                "reference_features": (
-                    json.loads(row["reference_features"])
-                    if row["reference_features"]
-                    else None
-                ),
+                "keypoint_similarity": round(keypoint_similarity, 3),
+                "reference_features": reference,
             }
         )
     return results

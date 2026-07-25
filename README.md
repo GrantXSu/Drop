@@ -133,6 +133,12 @@ plain, contrasting background. Use diffuse light, keep all four corners
 visible, and include both sides. The first run uses a clearly labeled,
 low-confidence visual heuristic.
 
+If an automatic centering guide follows text or a content bar, expand
+**Adjust centering guides manually** in the inspection report. Set the four
+visible border widths from 0.2–5.0 mm and choose **Apply and recalculate grade**.
+The updated guides, ratios, centering subgrade, and overall estimate are then
+recomputed from those explicit measurements.
+
 For a single development command that opens the browser and reloads when source
 files change:
 
@@ -169,7 +175,8 @@ fingerprints, and clean-card condition baselines in
 images outside the database; compact reference thumbnails are retained for
 surface comparison. Re-run it to add newly released sets. The first complete
 sync downloads and profiles many thousands of cards and can take a while.
-Identification is visual and may confuse parallel, reverse-holo, or similarly
+Identification combines perceptual color/hash matching with local artwork
+keypoints, but may still confuse parallel, reverse-holo, or similarly
 illustrated printings. For confident matches, the clean reference layout
 calibrates expected print placement and checks for localized surface anomalies
 without moving the detected border guides.

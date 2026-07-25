@@ -12,7 +12,7 @@ from typing import Optional
 
 import cv2
 import uvicorn
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .catalog import (
@@ -25,6 +25,7 @@ from .features import (
     CardImageError,
     analyze_image,
     annotated_image,
+    apply_manual_centering,
     source_boundary_image,
 )
 from .model import DEFAULT_MODEL_PATH, defect_summary, grade_label, predict_grade
@@ -66,6 +67,7 @@ def _visual_report(side: str, analysis: CardAnalysis) -> dict:
             "raw_percent": centering.get("raw_percent"),
             "measurement_limit_mm": centering.get("measurement_limit_mm"),
             "retest_recommended": centering.get("retest_recommended", False),
+            "manual_override": centering.get("manual_override", False),
         },
         "findings": analysis.diagnostics["defects"],
         "condition_signals": analysis.diagnostics["condition_signals"],
@@ -106,6 +108,14 @@ def status() -> dict:
 async def grade_card(
     front: UploadFile = File(...),
     back: Optional[UploadFile] = File(default=None),
+    front_left_mm: Optional[float] = Form(default=None),
+    front_right_mm: Optional[float] = Form(default=None),
+    front_top_mm: Optional[float] = Form(default=None),
+    front_bottom_mm: Optional[float] = Form(default=None),
+    back_left_mm: Optional[float] = Form(default=None),
+    back_right_mm: Optional[float] = Form(default=None),
+    back_top_mm: Optional[float] = Form(default=None),
+    back_bottom_mm: Optional[float] = Form(default=None),
 ) -> dict:
     try:
         front_analysis = analyze_image(await _read_upload(front), side="front")
@@ -121,6 +131,38 @@ async def grade_card(
         )
         if identified_card:
             apply_reference_baseline(front_analysis, identified_card)
+        manual_front = {
+            "left": front_left_mm,
+            "right": front_right_mm,
+            "top": front_top_mm,
+            "bottom": front_bottom_mm,
+        }
+        if any(value is not None for value in manual_front.values()):
+            if any(value is None for value in manual_front.values()):
+                raise CardImageError(
+                    "Provide all four front measurements for manual centering."
+                )
+            apply_manual_centering(
+                front_analysis,
+                {name: float(value) for name, value in manual_front.items()},
+            )
+        manual_back = {
+            "left": back_left_mm,
+            "right": back_right_mm,
+            "top": back_top_mm,
+            "bottom": back_bottom_mm,
+        }
+        if any(value is not None for value in manual_back.values()):
+            if back_analysis is None:
+                raise CardImageError("Upload a back image before adjusting its guides.")
+            if any(value is None for value in manual_back.values()):
+                raise CardImageError(
+                    "Provide all four back measurements for manual centering."
+                )
+            apply_manual_centering(
+                back_analysis,
+                {name: float(value) for name, value in manual_back.items()},
+            )
         model_path = Path(os.getenv("CARD_GRADER_MODEL", str(DEFAULT_MODEL_PATH)))
         prediction = predict_grade(
             front_analysis.features,

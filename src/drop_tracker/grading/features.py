@@ -516,6 +516,7 @@ def _border_measurements(
         "distance_mm": distance_mm,
         "measurement_limit_mm": MAX_BORDER_MM,
         "retest_recommended": near_limit,
+        "manual_override": False,
         "adjusted_distance_mm": None,
         "layout_adjustment": None,
         "card_dimensions": {"width": width, "height": height},
@@ -768,6 +769,67 @@ def _region_stats(
         "side": side,
     }
     return features, diagnostics
+
+
+def apply_manual_centering(
+    analysis: CardAnalysis, distances_mm: Dict[str, float]
+) -> None:
+    """Replace automatic inner guides with explicit user measurements."""
+    required = {"left", "right", "top", "bottom"}
+    if set(distances_mm) != required:
+        raise CardImageError("Manual centering requires left, right, top, and bottom.")
+    for name, value in distances_mm.items():
+        if not 0.2 <= float(value) <= MAX_BORDER_MM:
+            raise CardImageError(
+                f"Manual {name} border must be between 0.2 and {MAX_BORDER_MM:.1f} mm."
+            )
+
+    centering = analysis.diagnostics["centering"]
+    width = int(centering["card_dimensions"]["width"])
+    height = int(centering["card_dimensions"]["height"])
+    pixels = {
+        "left": max(1, round(float(distances_mm["left"]) / CARD_WIDTH_MM * width)),
+        "right": max(1, round(float(distances_mm["right"]) / CARD_WIDTH_MM * width)),
+        "top": max(1, round(float(distances_mm["top"]) / CARD_HEIGHT_MM * height)),
+        "bottom": max(1, round(float(distances_mm["bottom"]) / CARD_HEIGHT_MM * height)),
+    }
+    horizontal_total = pixels["left"] + pixels["right"]
+    vertical_total = pixels["top"] + pixels["bottom"]
+    balance_x = min(pixels["left"], pixels["right"]) / max(
+        pixels["left"], pixels["right"]
+    )
+    balance_y = min(pixels["top"], pixels["bottom"]) / max(
+        pixels["top"], pixels["bottom"]
+    )
+    centering.update(
+        {
+            "balance_x": float(balance_x),
+            "balance_y": float(balance_y),
+            "guides": {
+                "left": pixels["left"],
+                "right": width - 1 - pixels["right"],
+                "top": pixels["top"],
+                "bottom": height - 1 - pixels["bottom"],
+            },
+            "distances": pixels,
+            "distance_mm": {
+                name: round(float(value), 1) for name, value in distances_mm.items()
+            },
+            "offset": {
+                "horizontal": round((pixels["left"] - pixels["right"]) / 2.0, 1),
+                "vertical": round((pixels["top"] - pixels["bottom"]) / 2.0, 1),
+            },
+            "left_percent": round(pixels["left"] / horizontal_total * 100),
+            "right_percent": round(pixels["right"] / horizontal_total * 100),
+            "top_percent": round(pixels["top"] / vertical_total * 100),
+            "bottom_percent": round(pixels["bottom"] / vertical_total * 100),
+            "manual_override": True,
+            "reference_calibrated": False,
+            "retest_recommended": False,
+        }
+    )
+    analysis.features["centering_x"] = float(balance_x)
+    analysis.features["centering_y"] = float(balance_y)
 
 
 def annotated_image(analysis: CardAnalysis) -> np.ndarray:

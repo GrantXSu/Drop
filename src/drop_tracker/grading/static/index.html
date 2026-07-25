@@ -68,6 +68,14 @@
     .findings-dropdown summary { display:flex; justify-content:space-between; gap:12px; padding:12px 14px; cursor:pointer; font-weight:800; }
     .findings-dropdown summary small { color:var(--muted); font-weight:600; }
     .findings-list { max-height:360px; overflow:auto; padding:0 14px 14px; border-top:1px solid var(--line); }
+    .guide-editor { margin:14px 0; border:1px solid #cfd6ef; border-radius:12px; background:#f5f7ff; }
+    .guide-editor summary { padding:11px 13px; cursor:pointer; font-weight:800; }
+    .guide-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px 16px; padding:4px 13px 12px; }
+    .guide-control { display:grid; grid-template-columns:52px 1fr 58px; gap:8px; align-items:center; font-size:13px; }
+    .guide-control output { text-align:right; font-weight:750; }
+    .guide-actions { display:flex; gap:8px; padding:0 13px 13px; }
+    .guide-actions button { padding:9px 12px; font-size:13px; }
+    .guide-actions .reset-guides { color:var(--ink); background:#e4e7f1; }
     .signals { display:grid; gap:9px; margin:16px 0; }
     .signal { padding:10px 12px; border-radius:10px; background:#f5f3ed; font-size:13px; }
     .signal b { display:block; margin-bottom:3px; }
@@ -142,17 +150,19 @@
     const scan = document.querySelector("#scan");
     const errorBox = document.querySelector("#error");
     const results = document.querySelector("#results");
+    const manualGuides = {};
 
-    function preview(input, container) {
+    function preview(input, container, side) {
       input.addEventListener("change", () => {
+        delete manualGuides[side];
         const image = container.querySelector("img");
         if (!input.files[0]) { container.classList.remove("has-image"); return; }
         image.src = URL.createObjectURL(input.files[0]);
         container.classList.add("has-image");
       });
     }
-    preview(front, document.querySelector("#front-drop"));
-    preview(back, document.querySelector("#back-drop"));
+    preview(front, document.querySelector("#front-drop"), "front");
+    preview(back, document.querySelector("#back-drop"), "back");
 
     fetch("/api/status").then(r => r.json()).then(status => {
       document.querySelector("#model-status").textContent = status.trained_model
@@ -170,6 +180,11 @@
       const form = new FormData();
       form.append("front", front.files[0]);
       if (back.files[0]) form.append("back", back.files[0]);
+      Object.entries(manualGuides).forEach(([side, guides]) => {
+        Object.entries(guides).forEach(([name, value]) => {
+          form.append(`${side}_${name}_mm`, value);
+        });
+      });
       scan.disabled = true;
       scan.textContent = "Inspecting pixels…";
       try {
@@ -237,6 +252,14 @@
                 </div>
               </details>`
             : `<div class="clear">No localized whitening or glare signals exceeded the detection threshold.</div>`;
+          const sideKey = report.side.toLowerCase();
+          const guideControls = ["left", "right", "top", "bottom"].map(name => `
+            <label class="guide-control">
+              <span>${name[0].toUpperCase() + name.slice(1)}</span>
+              <input type="range" min="0.2" max="5" step="0.1"
+                data-guide="${name}" value="${report.centering.distance_mm[name]}">
+              <output>${Number(report.centering.distance_mm[name]).toFixed(1)} mm</output>
+            </label>`).join("");
           return `
             <article class="evidence-card">
               <img src="${report.source_image}" alt="${report.side} original upload with detected physical card boundary">
@@ -251,6 +274,14 @@
                   <span class="measurement">L ${report.centering.distance_mm.left.toFixed(1)}mm ↔ R ${report.centering.distance_mm.right.toFixed(1)}mm</span>
                   <span class="measurement">T ${report.centering.distance_mm.top.toFixed(1)}mm ↕ B ${report.centering.distance_mm.bottom.toFixed(1)}mm</span>
                 </div>
+                <details class="guide-editor" data-side="${sideKey}" ${report.centering.manual_override ? "open" : ""}>
+                  <summary>Adjust centering guides manually${report.centering.manual_override ? " · applied" : ""}</summary>
+                  <div class="guide-grid">${guideControls}</div>
+                  <div class="guide-actions">
+                    <button type="button" class="apply-guides">Apply and recalculate grade</button>
+                    <button type="button" class="reset-guides">Use automatic detection</button>
+                  </div>
+                </details>
                 <div class="signals">
                   <div class="signal"><b>Corner evidence</b><span>Pale/color-loss pixels: ${cornerText}. Lower is better.</span></div>
                   <div class="signal"><b>Edge evidence</b><span>Confirmed pale/whitening pixels: ${edgeText}. Blur lowers confidence, not the edge score.</span></div>
@@ -260,6 +291,31 @@
               </div>
             </article>`;
         }).join("");
+        document.querySelectorAll(".guide-control input").forEach(input => {
+          input.addEventListener("input", () => {
+            input.parentElement.querySelector("output").textContent =
+              `${Number(input.value).toFixed(1)} mm`;
+          });
+        });
+        document.querySelectorAll(".apply-guides").forEach(button => {
+          button.addEventListener("click", () => {
+            const editor = button.closest(".guide-editor");
+            const side = editor.dataset.side;
+            manualGuides[side] = Object.fromEntries(
+              [...editor.querySelectorAll("[data-guide]")].map(input => [
+                input.dataset.guide,
+                input.value,
+              ])
+            );
+            scan.click();
+          });
+        });
+        document.querySelectorAll(".reset-guides").forEach(button => {
+          button.addEventListener("click", () => {
+            delete manualGuides[button.closest(".guide-editor").dataset.side];
+            scan.click();
+          });
+        });
         results.style.display = "block";
         results.scrollIntoView({ behavior:"smooth", block:"nearest" });
       } catch (error) {

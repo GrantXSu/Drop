@@ -374,6 +374,7 @@ def test_catalog_identifies_matching_reference(tmp_path: Path) -> None:
 
     assert matches[0]["id"] == "sv-test-1"
     assert matches[0]["confidence"] == 1.0
+    assert matches[0]["keypoint_similarity"] >= 0.0
 
 
 def test_catalog_all_mode_discovers_every_english_series(
@@ -527,3 +528,30 @@ def test_ui_collapses_detected_findings() -> None:
     assert response.headers["cache-control"].startswith("no-store")
     assert 'class="findings-dropdown"' in response.text
     assert "Detected findings (" in response.text
+    assert "Adjust centering guides manually" in response.text
+
+
+def test_grade_api_applies_manual_centering_guides(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("CARD_GRADER_MODEL", str(tmp_path / "missing.joblib"))
+    response = TestClient(app).post(
+        "/api/grade",
+        files={"front": ("front.jpg", card_image_bytes(), "image/jpeg")},
+        data={
+            "front_left_mm": "1.0",
+            "front_right_mm": "2.0",
+            "front_top_mm": "2.5",
+            "front_bottom_mm": "2.5",
+        },
+    )
+
+    assert response.status_code == 200
+    centering = response.json()["visual_reports"][0]["centering"]
+    assert centering["manual_override"]
+    assert centering["distance_mm"] == {
+        "left": 1.0,
+        "right": 2.0,
+        "top": 2.5,
+        "bottom": 2.5,
+    }
+    assert centering["horizontal"] == "33/67"
+    assert centering["vertical"] == "50/50"
