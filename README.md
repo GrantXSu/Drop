@@ -298,6 +298,11 @@ as surface scratch/print-line candidates; smooth broad glare is excluded from
 both categories. Surface candidates are labeled small, medium, or high and use
 severity weighting rather than raw highlighted-pixel totals, preventing many
 tiny marks from collapsing the surface grade.
+The visual measurement overlay remains rectangular, while condition analysis
+uses four dedicated corner zones covering 12% of the card width/height. Damage
+inside those zones is labeled `Corner whitening`; it affects the corner
+subgrade, and affects the edge subgrade only when it also touches the cut-edge
+band.
 
 Centering calibration follows the published [PSA grading
 standards](https://www.psacard.com/gradingstandards) and [Beckett grading

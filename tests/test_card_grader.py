@@ -244,7 +244,7 @@ def test_back_analysis_marks_non_blue_corner_whitening() -> None:
     analysis = analyze_image(encoded.tobytes(), side="back")
 
     assert any(
-        finding["type"] == "Localized whitening"
+        finding["type"] == "Corner whitening"
         for finding in analysis.diagnostics["defects"]
     )
 
@@ -275,10 +275,25 @@ def test_back_whitening_ignores_smooth_glare_but_finds_small_chip() -> None:
     _, chip_diagnostics = _region_stats(chipped, side="back")
 
     assert any(
-        finding["type"] == "Localized whitening"
+        finding["type"] == "Corner whitening"
         and finding["bbox"][0] > CARD_WIDTH - 50
         for finding in chip_diagnostics["defects"]
     )
+
+
+def test_inner_corner_damage_scores_corner_without_edge_penalty() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (145, 70, 12), dtype=np.uint8)
+    cv2.rectangle(card, (20, 22), (29, 38), (205, 205, 205), -1)
+
+    features, diagnostics = _region_stats(card, side="back")
+
+    assert any(
+        finding["type"] == "Corner whitening"
+        and finding["location"] == "top-left corner"
+        for finding in diagnostics["defects"]
+    )
+    assert features["corner_defect_load"] > 0
+    assert features["edge_defect_load"] == 0
 
 
 def test_inner_blue_border_streak_is_surface_not_edge_whitening() -> None:

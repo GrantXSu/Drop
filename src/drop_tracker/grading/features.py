@@ -660,9 +660,18 @@ def _region_stats(
         # farther inside the blue border are surface defects, not edge wear.
         cut_edge_depth = max(6, round(min(height, width) * 0.012))
         surface_depth = max(cut_edge_depth + 1, round(min(height, width) * 0.040))
+        corner_zone = max(corner_radius * 2, round(min(height, width) * 0.12))
+        corner_zone_mask = np.zeros((height, width), dtype=bool)
+        corner_zone_mask[:corner_zone, :corner_zone] = True
+        corner_zone_mask[:corner_zone, -corner_zone:] = True
+        corner_zone_mask[-corner_zone:, :corner_zone] = True
+        corner_zone_mask[-corner_zone:, -corner_zone:] = True
         perimeter_mask = (distance > 0) & (distance <= cut_edge_depth)
         inner_border_mask = (distance > cut_edge_depth) & (
             distance <= surface_depth
+        )
+        inspection_mask = perimeter_mask | (
+            corner_zone_mask & (distance > 0) & (distance <= surface_depth)
         )
 
         saturation = hsv[:, :, 1].astype(np.float32)
@@ -679,31 +688,38 @@ def _region_stats(
             & ((local_saturation - saturation) > 8)
         )
         localized = (
-            (value > 75)
-            & perimeter_mask
+            (value > 50)
+            & inspection_mask
             & (localized_change | strong_local_white)
         ).astype(np.uint8) * 255
         localized = cv2.morphologyEx(
             localized, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
         )
-        component_count, _, stats, _ = cv2.connectedComponentsWithStats(localized)
+        component_count, component_labels, stats, _ = cv2.connectedComponentsWithStats(
+            localized
+        )
         components = []
         for index in range(1, component_count):
             x, y, box_width, box_height, area = stats[index]
-            if area < 5 or area > width * height * 0.012:
-                continue
             near_corner = (
-                (x < corner_radius * 2 or x + box_width > width - corner_radius * 2)
+                (x < corner_zone or x + box_width > width - corner_zone)
                 and (
-                    y < corner_radius * 2
-                    or y + box_height > height - corner_radius * 2
+                    y < corner_zone
+                    or y + box_height > height - corner_zone
                 )
             )
+            if area < (3 if near_corner else 5) or area > width * height * 0.012:
+                continue
             size_limit = 0.20 if near_corner else 0.12
             if box_width > width * size_limit or box_height > height * size_limit:
                 continue
-            components.append((area, x, y, box_width, box_height))
-        for area, x, y, box_width, box_height in sorted(
+            touches_cut_edge = bool(
+                np.any((component_labels == index) & perimeter_mask)
+            )
+            components.append(
+                (area, x, y, box_width, box_height, touches_cut_edge)
+            )
+        for area, x, y, box_width, box_height, touches_cut_edge in sorted(
             components, reverse=True
         )[:60]:
             center_x = x + box_width / 2.0
@@ -717,27 +733,37 @@ def _region_stats(
                 ),
                 key=lambda item: item[0],
             )[1]
-            edge_length = width if nearest_edge in {"top edge", "bottom edge"} else height
-            confirmed_edge_signals[nearest_edge] += area / max(1, strip * edge_length)
-            edge_defect_count += 1
             severity = defect_severity(int(area))
-            edge_defect_weight += defect_weight(severity)
+            if touches_cut_edge:
+                edge_length = (
+                    width if nearest_edge in {"top edge", "bottom edge"} else height
+                )
+                confirmed_edge_signals[nearest_edge] += area / max(
+                    1, strip * edge_length
+                )
+                edge_defect_count += 1
+                edge_defect_weight += defect_weight(severity)
             horizontal_corner = "left" if center_x < width / 2 else "right"
             vertical_corner = "top" if center_y < height / 2 else "bottom"
-            if min(center_x, width - center_x) < corner_radius and min(
+            is_corner = min(center_x, width - center_x) < corner_zone and min(
                 center_y, height - center_y
-            ) < corner_radius:
+            ) < corner_zone
+            if is_corner:
                 corner_name = f"{vertical_corner}-{horizontal_corner}"
                 confirmed_corner_signals[corner_name] += area / max(
-                    1, strip * corner_radius
+                    1, cut_edge_depth * corner_zone
                 )
                 corner_defect_count += 1
                 corner_defect_weight += defect_weight(severity)
             padding = 5
             defects.append(
                 {
-                    "type": "Localized whitening",
-                    "location": "back perimeter",
+                    "type": "Corner whitening" if is_corner else "Localized whitening",
+                    "location": (
+                        f"{vertical_corner}-{horizontal_corner} corner"
+                        if is_corner
+                        else "back perimeter"
+                    ),
                     "severity": severity,
                     "evidence": f"{int(area)} highlighted edge pixels",
                     "bbox": (
@@ -750,8 +776,9 @@ def _region_stats(
             )
 
         surface_mask = (
-            (value > 75)
+            (value > 50)
             & inner_border_mask
+            & ~corner_zone_mask
             & (localized_change | strong_local_white)
             & (local_saturation > 70)
         ).astype(np.uint8) * 255
