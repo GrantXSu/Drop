@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CardLens — Pokémon Grade Estimate</title>
+  <style>
+    :root { --ink:#182033; --muted:#697086; --paper:#fffdf8; --line:#e5e1d8; --blue:#3157d5; --gold:#f5be39; --red:#d94c56; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:radial-gradient(circle at top left,#e8edff 0,transparent 32%),#f4f1ea; font:16px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    .shell { width:min(1080px,calc(100% - 32px)); margin:0 auto; padding:28px 0 64px; }
+    header { display:flex; align-items:center; justify-content:space-between; margin-bottom:36px; }
+    .brand { font-weight:850; letter-spacing:-.04em; font-size:24px; }
+    .brand span { color:var(--blue); }
+    .status { font-size:13px; color:var(--muted); padding:7px 11px; border:1px solid var(--line); border-radius:999px; background:#ffffffa8; }
+    .hero { max-width:720px; margin-bottom:28px; }
+    h1 { margin:0 0 12px; font-size:clamp(38px,7vw,72px); line-height:.98; letter-spacing:-.065em; }
+    .hero p { max-width:630px; color:var(--muted); font-size:18px; }
+    .panel { background:var(--paper); border:1px solid var(--line); border-radius:24px; box-shadow:0 18px 50px #25335a12; padding:24px; }
+    .uploads { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+    .drop { position:relative; min-height:330px; border:1.5px dashed #b9b7b1; border-radius:18px; overflow:hidden; background:#f8f6f0; display:grid; place-items:center; text-align:center; cursor:pointer; transition:.2s; }
+    .drop:hover,.drop:focus-within { border-color:var(--blue); background:#f2f4ff; }
+    .drop input { position:absolute; inset:0; width:100%; opacity:0; cursor:pointer; }
+    .drop img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#eeeae2; display:none; }
+    .drop.has-image img { display:block; }
+    .drop-copy strong { display:block; font-size:18px; }
+    .drop-copy span { color:var(--muted); font-size:14px; }
+    .tag { position:absolute; z-index:2; top:12px; left:12px; border-radius:999px; padding:6px 10px; background:#171c29de; color:white; font-size:12px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+    .actions { display:flex; gap:14px; align-items:center; margin-top:18px; }
+    button { appearance:none; border:0; border-radius:12px; padding:14px 20px; background:var(--blue); color:#fff; font:inherit; font-weight:780; cursor:pointer; }
+    button:hover { filter:brightness(1.08); }
+    button:disabled { opacity:.55; cursor:wait; }
+    .hint { color:var(--muted); font-size:13px; }
+    .error { display:none; margin-top:16px; padding:12px 14px; color:#7e1d26; background:#ffe9e9; border-radius:10px; }
+    .results { display:none; margin-top:22px; }
+    .identity { display:none; align-items:center; gap:16px; margin-bottom:18px; padding:14px; border:1px solid var(--line); border-radius:14px; background:#f5f7ff; }
+    .identity img { width:70px; height:98px; object-fit:contain; border-radius:6px; }
+    .identity strong { display:block; font-size:19px; }
+    .identity span { color:var(--muted); font-size:14px; }
+    .result-grid { display:grid; grid-template-columns:240px 1fr; gap:28px; }
+    .grade-card { border-radius:18px; background:var(--ink); color:white; padding:24px; min-height:240px; display:flex; flex-direction:column; justify-content:space-between; }
+    .grade-card small { color:#bac3db; text-transform:uppercase; letter-spacing:.12em; font-weight:750; }
+    .grade { font-size:92px; line-height:1; letter-spacing:-.08em; color:var(--gold); font-weight:900; }
+    .grade-label { font-size:20px; font-weight:800; }
+    .range { color:#d7dcec; font-size:13px; }
+    h2 { margin:0 0 15px; font-size:28px; letter-spacing:-.04em; }
+    .metric { display:grid; grid-template-columns:110px 1fr 46px; gap:12px; align-items:center; margin:17px 0; }
+    .metric-copy { display:flex; flex-direction:column; }
+    .metric-copy small { color:var(--muted); }
+    .bar { height:8px; border-radius:99px; overflow:hidden; background:#e9e6df; }
+    .bar i { display:block; height:100%; background:linear-gradient(90deg,var(--red),var(--gold),#50a879); border-radius:inherit; }
+    .warnings { color:#765d18; background:#fff4d7; border-radius:12px; padding:12px 16px; margin-top:16px; font-size:14px; }
+    .disclaimer { color:var(--muted); margin-top:16px; font-size:13px; }
+    .evidence { margin-top:34px; padding-top:28px; border-top:1px solid var(--line); }
+    .evidence-intro { color:var(--muted); max-width:720px; }
+    .evidence-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-top:18px; }
+    .evidence-card { border:1px solid var(--line); border-radius:16px; overflow:hidden; background:#fff; }
+    .evidence-card img { display:block; width:100%; max-height:580px; object-fit:contain; background:#e8e5de; }
+    .image-caption { margin:0; padding:7px 12px; color:var(--muted); background:#f4f2ec; font-size:12px; font-weight:750; text-transform:uppercase; letter-spacing:.08em; }
+    .evidence-copy { padding:18px; }
+    .evidence-copy h3 { margin:0 0 12px; font-size:22px; }
+    .measurements { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:15px; }
+    .measurement { border-radius:999px; padding:6px 10px; background:#edf0fa; font-size:13px; font-weight:750; }
+    .finding { display:grid; grid-template-columns:10px 1fr; gap:10px; margin-top:12px; }
+    .finding-dot { width:10px; height:10px; margin-top:6px; border-radius:50%; background:var(--red); }
+    .finding small { display:block; color:var(--muted); }
+    .signals { display:grid; gap:9px; margin:16px 0; }
+    .signal { padding:10px 12px; border-radius:10px; background:#f5f3ed; font-size:13px; }
+    .signal b { display:block; margin-bottom:3px; }
+    .signal span { color:var(--muted); }
+    .clear { color:#31704b; background:#e6f7ec; border-radius:10px; padding:10px 12px; }
+    .legend { display:flex; gap:16px; color:var(--muted); font-size:12px; margin-top:12px; }
+    .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
+    .legend .green { background:#60dc78; } .legend .red { background:#f04b41; }
+    .legend .outer { background:#28d9ff; }
+    .legend .cyan { background:#28d9ff; }
+    @media (max-width:720px) { .uploads,.result-grid,.evidence-grid { grid-template-columns:1fr; } .drop { min-height:280px; } .actions { align-items:stretch; flex-direction:column; } button { width:100%; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand">Card<span>Lens</span></div>
+      <div class="status" id="model-status">Checking model…</div>
+    </header>
+    <section class="hero">
+      <h1>See the card.<br>Estimate the grade.</h1>
+      <p>Upload or photograph both sides in even light. CardLens returns a digital condition report with a decimal grade and centering, corner, edge, and surface subgrades.</p>
+    </section>
+    <section class="panel">
+      <div class="uploads">
+        <label class="drop" id="front-drop">
+          <span class="tag">Front · required</span>
+          <input id="front" name="front" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" required>
+          <img alt="Front card preview">
+          <span class="drop-copy"><strong>Photograph card front</strong><span>or choose an image</span></span>
+        </label>
+        <label class="drop" id="back-drop">
+          <span class="tag">Back · recommended</span>
+          <input id="back" name="back" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+          <img alt="Back card preview">
+          <span class="drop-copy"><strong>Photograph card back</strong><span>improves the estimate</span></span>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="scan" type="button">Analyze card</button>
+        <span class="hint">Remove sleeves. Use a plain dark background and avoid glare.</span>
+      </div>
+      <div class="error" id="error" role="alert"></div>
+      <section class="results" id="results" aria-live="polite">
+        <div class="identity" id="identity"></div>
+        <div class="result-grid">
+          <div class="grade-card">
+            <small>Estimated grade</small>
+            <div class="grade" id="grade">—</div>
+            <div class="grade-label" id="grade-label"></div>
+            <div class="range" id="range"></div>
+          </div>
+          <div>
+            <h2>Visual breakdown</h2>
+            <div id="metrics"></div>
+            <div class="warnings" id="warnings"></div>
+            <div class="disclaimer" id="caveat"></div>
+          </div>
+        </div>
+        <section class="evidence" id="evidence">
+          <h2>Detailed inspection report</h2>
+          <p class="evidence-intro">Each card is perspective-corrected to 750 × 1050 pixels. Green guides mark the inner printed edge; the report measures from each physical outer edge to that guide, then compares opposite borders. Red regions show suspected defects or glare.</p>
+          <div class="evidence-grid" id="visual-reports"></div>
+          <div class="legend"><span><i class="outer"></i>Outer physical border</span><span><i class="green"></i>Inner printed border</span><span><i class="red"></i>Suspected edge defect</span></div>
+        </section>
+      </section>
+    </section>
+  </main>
+  <script>
+    const front = document.querySelector("#front");
+    const back = document.querySelector("#back");
+    const scan = document.querySelector("#scan");
+    const errorBox = document.querySelector("#error");
+    const results = document.querySelector("#results");
+
+    function preview(input, container) {
+      input.addEventListener("change", () => {
+        const image = container.querySelector("img");
+        if (!input.files[0]) { container.classList.remove("has-image"); return; }
+        image.src = URL.createObjectURL(input.files[0]);
+        container.classList.add("has-image");
+      });
+    }
+    preview(front, document.querySelector("#front-drop"));
+    preview(back, document.querySelector("#back-drop"));
+
+    fetch("/api/status").then(r => r.json()).then(status => {
+      document.querySelector("#model-status").textContent = status.trained_model
+        ? "Trained model ready" : "Prototype mode · model not trained";
+    }).catch(() => document.querySelector("#model-status").textContent = "Scanner offline");
+
+    scan.addEventListener("click", async () => {
+      errorBox.style.display = "none";
+      results.style.display = "none";
+      if (!front.files[0]) {
+        errorBox.textContent = "Add a front photo first.";
+        errorBox.style.display = "block";
+        return;
+      }
+      const form = new FormData();
+      form.append("front", front.files[0]);
+      if (back.files[0]) form.append("back", back.files[0]);
+      scan.disabled = true;
+      scan.textContent = "Inspecting pixels…";
+      try {
+        const response = await fetch("/api/grade", { method:"POST", body:form });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "The card could not be analyzed.");
+        const prediction = data.prediction;
+        const identity = document.querySelector("#identity");
+        if (data.identification && data.identification.match) {
+          const match = data.identification.match;
+          identity.innerHTML = `
+            ${match.image_url ? `<img src="${match.image_url}" alt="${match.name} reference image">` : ""}
+            <div><small>Catalog match</small><strong>${match.name}</strong>
+              <span>${match.set_name} · ${match.number} · ${Math.round(match.confidence * 100)}% visual confidence</span>
+            </div>`;
+          identity.style.display = "flex";
+        } else {
+          identity.innerHTML = data.identification && data.identification.catalog_ready
+            ? `<div><strong>No confident card match</strong><span>Use a straight, sharp front photo with the full card visible.</span></div>`
+            : `<div><strong>Card catalog is not synced</strong><span>Run drop-sync-card-catalog to enable identification.</span></div>`;
+          identity.style.display = "flex";
+        }
+        document.querySelector("#grade").textContent = prediction.grade.toFixed(1);
+        document.querySelector("#grade-label").textContent = prediction.label;
+        document.querySelector("#range").textContent =
+          `${prediction.low.toFixed(1)}–${prediction.high.toFixed(1)} range · ${prediction.confidence} confidence`;
+        document.querySelector("#metrics").innerHTML = data.categories.map(metric => `
+          <div class="metric" title="${metric.detail}">
+            <span class="metric-copy"><b>${metric.name}</b><small>${metric.condition}</small></span>
+            <div class="bar"><i style="width:${Math.max(0,Math.min(100,metric.score * 10))}%"></i></div>
+            <strong>${Number(metric.score).toFixed(1)}</strong>
+          </div>`).join("");
+        const warnings = data.warnings.length ? data.warnings.join(" ") : "Photo quality checks passed.";
+        document.querySelector("#warnings").textContent = warnings;
+        document.querySelector("#caveat").textContent = `${prediction.method}. ${prediction.caveat}`;
+        const visualReports = Array.isArray(data.visual_reports) ? data.visual_reports : [];
+        document.querySelector("#evidence").style.display = visualReports.length ? "block" : "none";
+        document.querySelector("#visual-reports").innerHTML = visualReports.map(report => {
+          const signals = report.condition_signals;
+          const cornerText = Object.entries(signals.corners)
+            .map(([name, value]) => `${name} ${Number(value).toFixed(1)}%`).join(" · ");
+          const edgeText = Object.entries(signals.edges)
+            .map(([name, value]) => `${name} ${Number(value).toFixed(1)}%`).join(" · ");
+          const findings = report.findings.length
+            ? report.findings.map(finding => `
+                <div class="finding">
+                  <i class="finding-dot"></i>
+                  <span><b>${finding.type} · ${finding.location}</b>
+                    <small>${finding.severity} signal — ${finding.evidence}</small>
+                  </span>
+                </div>`).join("")
+            : `<div class="clear">No localized whitening or glare signals exceeded the detection threshold.</div>`;
+          return `
+            <article class="evidence-card">
+              <img src="${report.source_image}" alt="${report.side} original upload with detected physical card boundary">
+              <p class="image-caption">Original upload · green outline is the farthest physical edge used</p>
+              <img src="${report.image}" alt="${report.side} card with centering and defect annotations">
+              <p class="image-caption">Perspective-corrected border measurement</p>
+              <div class="evidence-copy">
+                <h3>${report.side} inspection</h3>
+                <div class="measurements">
+                  <span class="measurement">Left/right ${report.centering.horizontal}</span>
+                  <span class="measurement">Top/bottom ${report.centering.vertical}</span>
+                  <span class="measurement">L ${report.centering.distance_mm.left.toFixed(1)}mm ↔ R ${report.centering.distance_mm.right.toFixed(1)}mm</span>
+                  <span class="measurement">T ${report.centering.distance_mm.top.toFixed(1)}mm ↕ B ${report.centering.distance_mm.bottom.toFixed(1)}mm</span>
+                </div>
+                <div class="signals">
+                  <div class="signal"><b>Corner evidence</b><span>Pale/color-loss pixels: ${cornerText}. Lower is better.</span></div>
+                  <div class="signal"><b>Edge evidence</b><span>Pale/whitening pixels: ${edgeText}. A blurry image reduces the edge score.</span></div>
+                  <div class="signal"><b>Surface evidence</b><span>Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · dark obstruction ${Number(signals.surface.dark_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
+                </div>
+                ${findings}
+              </div>
+            </article>`;
+        }).join("");
+        results.style.display = "block";
+        results.scrollIntoView({ behavior:"smooth", block:"nearest" });
+      } catch (error) {
+        errorBox.textContent = error.message;
+        errorBox.style.display = "block";
+      } finally {
+        scan.disabled = false;
+        scan.textContent = "Analyze card";
+      }
+    });
+  </script>
+</body>
+</html>

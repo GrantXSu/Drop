@@ -15,10 +15,23 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+scanner = [
+  "fastapi>=0.128.8",
+  "joblib>=1.5.3",
+  "numpy>=2.0.2",
+  "opencv-python-headless>=5.0.0.93",
+  "pillow>=11.3.0",
+  "python-multipart>=0.0.20",
+  "scikit-learn>=1.6.1",
+  "uvicorn>=0.39.0",
+]
 
 [project.scripts]
 drop-tracker = "drop_tracker.main:main"
 drop-queue-watcher = "drop_tracker.queue_watcher:main"
+drop-card-grader = "drop_tracker.grading.web:main"
+drop-train-grader = "drop_tracker.grading.training:main"
+drop-sync-card-catalog = "drop_tracker.grading.catalog:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/drop_tracker"]

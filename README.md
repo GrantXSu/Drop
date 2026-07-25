@@ -116,6 +116,85 @@ multiple URLs with commas.
 
 Do not rely on GitHub Actions for live drop detection.
 
+## Run the card grade scanner
+
+The optional CardLens web app accepts front and back photos, corrects the card
+perspective, measures visible centering and wear signals, and estimates a
+PSA-style 1–10 grade range.
+
+```sh
+source .venv/bin/activate
+pip install -e '.[scanner]'
+drop-card-grader
+```
+
+Open <http://127.0.0.1:8000>, then photograph one unsleeved card at a time on a
+plain, contrasting background. Use diffuse light, keep all four corners
+visible, and include both sides. The first run uses a clearly labeled,
+low-confidence visual heuristic.
+
+### Sync the card identification catalog
+
+CardLens can identify English cards from Sword & Shield, Scarlet & Violet, and
+Mega Evolution onward using the open-source [TCGdex](https://tcgdex.dev/)
+database:
+
+```sh
+drop-sync-card-catalog
+```
+
+The command stores card names, sets, numbers, reference URLs, visual
+fingerprints, and clean-card condition baselines in
+`data/grading/card_catalog.sqlite`. It does not retain copies of the reference
+images. Re-run it to add newly released sets. Identification is visual and may
+confuse parallel, reverse-holo, or similarly illustrated printings; the report
+shows confidence and only applies a clean-card whitening baseline to confident
+matches.
+
+### Train it with verified samples
+
+Copy `examples/grading_manifest.csv` and add one row per graded card:
+
+```csv
+grade,front,back,source_url,usage_rights
+10,images/card-001-front.jpg,images/card-001-back.jpg,https://example.com/cert/001,owner permission
+```
+
+`front` and `back` can be local paths relative to the CSV or direct public image
+URLs. `source_url` records where the grade was verified, and `usage_rights`
+records why the image can legally be used. Then run:
+
+```sh
+drop-train-grader path/to/grading_manifest.csv
+drop-card-grader
+```
+
+The trainer rejects bad images, holds out entire source cards, reports mean
+absolute error and the percentage of predictions within one grade, and saves
+`models/card_grader.joblib`. It requires at least 100 valid samples from 80
+distinct cards across four grade bands. A production-quality model still needs
+hundreds or thousands of diverse, correctly labeled front-and-back examples.
+
+Publicly viewable PSA grades and images are not automatically licensed for
+bulk scraping or model training. The project therefore imports an explicit
+provenance manifest instead of scraping PSA. Check each source's terms and get
+permission where needed.
+
+CardLens is not affiliated with PSA and cannot inspect damage hidden by glare,
+sleeves, holders, or image resolution. Its result is an estimate, not a
+certification or guarantee of the grade a grading company will assign.
+
+Centering calibration follows the published [PSA grading
+standards](https://www.psacard.com/gradingstandards) and [Beckett grading
+scale](https://www.beckett.com/grading/scale). PSA permits approximately 55/45
+front and 75/25 reverse centering for Gem Mint 10. Beckett requires 50/50 on
+the front for Pristine 10 and publishes separate front/back thresholds for
+lower grades. The app reports a decimal PSA-style estimate and a separate
+Beckett-style centering reference; neither is an official grade. The decimal
+estimate is intentionally conservative: a back image is required for 10.0,
+both sides affect the score, and merely landing on PSA's maximum tolerance
+does not guarantee 10.0.
+
 ## Run continuously on Render
 
 `render.yaml` defines a Render background worker:
@@ -141,4 +220,6 @@ drop-tracker                     Run continuously
 drop-tracker --once              Check once and exit
 drop-tracker --test-notification Test Discord, then exit
 drop-queue-watcher               Watch the virtual queue in local Chrome
+drop-card-grader                 Open the local card grading web app
+drop-train-grader MANIFEST.csv   Train on verified sample images and grades
 ```
