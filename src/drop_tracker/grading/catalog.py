@@ -394,6 +394,16 @@ def _histogram_distance(first: Sequence[float], second: Sequence[float]) -> floa
     return float(np.abs(np.asarray(first) - np.asarray(second)).sum())
 
 
+def _embedding_match_evidence(
+    similarity: float, hamming: int, keypoint_similarity: float
+) -> float:
+    """Use semantic embeddings only when card-specific evidence also agrees."""
+    evidence = float(np.clip((similarity - 0.78) / 0.22, 0.0, 1.0))
+    if hamming > 16 and keypoint_similarity < 0.12:
+        evidence *= 0.25
+    return evidence
+
+
 def _artwork_keypoint_similarity(
     image: np.ndarray, reference: Optional[Dict[str, object]]
 ) -> float:
@@ -484,12 +494,14 @@ def identify_card(
             if query_embedding is not None and row["visual_embedding"]
             else 0.0
         )
-        embedding_evidence = float(
-            np.clip((embedding_similarity - 0.55) / 0.45, 0.0, 1.0)
+        embedding_evidence = _embedding_match_evidence(
+            embedding_similarity,
+            hamming,
+            keypoint_similarity,
         )
         reranked.append(
             (
-                score - keypoint_similarity * 18.0 - embedding_evidence * 24.0,
+                score - keypoint_similarity * 18.0 - embedding_evidence * 10.0,
                 score,
                 hamming,
                 color_distance,
@@ -531,7 +543,10 @@ def identify_card(
                 ),
                 "confidence": round(confidence, 3),
                 "match_method": (
-                    "ml_visual" if embedding_evidence >= 0.50 else "visual"
+                    "ml_visual"
+                    if embedding_evidence >= 0.50
+                    and (hamming <= 16 or keypoint_similarity >= 0.12)
+                    else "visual"
                 ),
                 "hash_distance": hamming,
                 "color_distance": round(color_distance, 3),

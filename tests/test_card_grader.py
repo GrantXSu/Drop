@@ -16,6 +16,7 @@ import drop_tracker.grading.catalog as catalog_module
 import drop_tracker.grading.web as web_module
 from drop_tracker.grading.catalog import (
     _connect,
+    _embedding_match_evidence,
     _image_asset_url,
     _reference_profile,
     apply_reference_baseline,
@@ -575,6 +576,38 @@ def test_missing_tcgdex_trainer_gallery_image_uses_fallback_cdn() -> None:
         "TG16",
         high_resolution=True,
     ) == "https://images.pokemontcg.io/swsh11tg/TG16_hires.png"
+
+
+def test_ml_embedding_requires_card_specific_visual_agreement() -> None:
+    assert _embedding_match_evidence(0.70, hamming=30, keypoint_similarity=0.02) == 0
+    weak = _embedding_match_evidence(
+        0.95, hamming=30, keypoint_similarity=0.02
+    )
+    strong = _embedding_match_evidence(
+        0.95, hamming=10, keypoint_similarity=0.02
+    )
+
+    assert weak < 0.25
+    assert strong > 0.70
+
+
+def test_automatic_match_rejects_low_confidence_and_ambiguity() -> None:
+    assert web_module._confident_catalog_match(
+        [{"id": "eevee", "confidence": 0.63}]
+    ) is None
+    assert web_module._confident_catalog_match(
+        [
+            {"id": "pikachu-a", "confidence": 0.83},
+            {"id": "pikachu-b", "confidence": 0.79},
+        ]
+    ) is None
+    accepted = web_module._confident_catalog_match(
+        [
+            {"id": "pikachu", "confidence": 0.88},
+            {"id": "eevee", "confidence": 0.68},
+        ]
+    )
+    assert accepted["id"] == "pikachu"
 
 
 def test_catalog_all_mode_discovers_every_english_series(

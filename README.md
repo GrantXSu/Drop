@@ -248,6 +248,13 @@ candidates using embedding cosine similarity, ORB keypoints, perceptual hash,
 and color. The model is cached under `data/grading/models/`; if it is unavailable
 CardLens falls back to the non-ML matcher.
 
+Because generic ImageNet embeddings can consider different Pokémon semantically
+similar, embeddings only receive full weight above 0.78 cosine similarity and
+when pHash or keypoint evidence agrees. Automatic identification requires at
+least 75% confidence and an 8-point lead over the runner-up (unless confidence
+is at least 92%); otherwise CardLens asks for manual catalog confirmation rather
+than displaying a weak match.
+
 When a TCGdex record has metadata but no English artwork URL, including some
 Trainer Gallery cards, CardLens falls back to the Pokémon TCG image CDN for
 search thumbnails and visual profiling. Failed images show an explicit

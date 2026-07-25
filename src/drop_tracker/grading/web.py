@@ -124,6 +124,20 @@ def _visual_report(side: str, analysis: CardAnalysis) -> dict:
     }
 
 
+def _confident_catalog_match(matches: list) -> Optional[dict]:
+    if not matches:
+        return None
+    first = matches[0]
+    confidence = float(first.get("confidence", 0.0))
+    if confidence < 0.75:
+        return None
+    if len(matches) > 1:
+        margin = confidence - float(matches[1].get("confidence", 0.0))
+        if margin < 0.08 and confidence < 0.92:
+            return None
+    return first
+
+
 async def _read_upload(upload: UploadFile) -> bytes:
     if upload.content_type and not upload.content_type.startswith("image/"):
         raise HTTPException(status_code=415, detail="Upload a JPEG, PNG, or WebP image.")
@@ -336,11 +350,7 @@ async def grade_card(
             if identified_card is None:
                 raise CardImageError("The selected catalog card no longer exists.")
         else:
-            identified_card = (
-                matches[0]
-                if matches and float(matches[0]["confidence"]) >= 0.55
-                else None
-            )
+            identified_card = _confident_catalog_match(matches)
         if identified_card:
             apply_reference_baseline(front_analysis, identified_card)
         manual_front = {
