@@ -661,7 +661,33 @@ def apply_reference_baseline(
     reference = match.get("reference_features")
     if not reference:
         return
-    _apply_surface_reference(analysis, reference)
+    original_features = dict(analysis.features)
+    original_diagnostics = copy.deepcopy(analysis.diagnostics)
+    for name in (
+        "edge_pale",
+        "corner_pale_mean",
+        "corner_pale_max",
+        "edge_defect_load",
+        "corner_defect_load",
+        "surface_damage",
+        "surface_assessed",
+    ):
+        analysis.features[name] = 0.0
+    analysis.diagnostics["defects"] = []
+    signals = analysis.diagnostics["condition_signals"]
+    signals["corners"] = {name: 0.0 for name in signals["corners"]}
+    signals["edges"] = {name: 0.0 for name in signals["edges"]}
+    signals["defect_counts"] = {
+        "edges": 0,
+        "corners": 0,
+        "edge_weight": 0.0,
+        "corner_weight": 0.0,
+    }
+    if not _apply_surface_reference(analysis, reference):
+        analysis.features.clear()
+        analysis.features.update(original_features)
+        analysis.diagnostics.clear()
+        analysis.diagnostics.update(original_diagnostics)
     expected = reference.get("centering_distances")
     if not expected:
         return

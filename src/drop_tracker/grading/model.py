@@ -446,8 +446,8 @@ def category_subgrades(
                 else "Not assessed"
             ),
             "detail": (
-                "Compared with aligned clean reference artwork for localized "
-                "scratches and creases."
+                "Visually inspected for localized scratches and creases; "
+                "aligned clean references are used when available."
                 if surface_assessed
                 else "Requires a confident catalog match and usable clean reference."
             ),

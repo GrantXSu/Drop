@@ -621,6 +621,7 @@ def _region_stats(
     corner_defect_weight = 0.0
     surface_anomaly_count = 0
     surface_localized_inspection = False
+    surface_generic_inspection = False
     surface_defect_weight = 0.0
     edge_baseline = float(np.median(list(edge_pale.values())))
 
@@ -928,6 +929,159 @@ def _region_stats(
             features["surface_damage"] = float(
                 np.clip(surface_defect_weight / 30.0, 0.0, 1.0)
             )
+        features["surface_assessed"] = 1.0
+        surface_generic_inspection = True
+
+    if side == "front":
+        saturation = hsv[:, :, 1].astype(np.float32)
+        value = hsv[:, :, 2].astype(np.float32)
+        local_saturation = cv2.GaussianBlur(saturation, (0, 0), 7.0)
+        local_value = cv2.GaussianBlur(value, (0, 0), 7.0)
+        localized_change = (
+            ((local_saturation - saturation) > 20) & (value > local_value + 5)
+        ) | (((value - local_value) > 30) & (saturation < 125))
+        edge_depth = max(10, round(min(height, width) * 0.025))
+        corner_zone = max(60, round(min(height, width) * 0.12))
+        edge_zone_mask = np.zeros((height, width), dtype=bool)
+        edge_zone_mask[:edge_depth, :] = True
+        edge_zone_mask[-edge_depth:, :] = True
+        edge_zone_mask[:, :edge_depth] = True
+        edge_zone_mask[:, -edge_depth:] = True
+        edge_candidates = (
+            edge_zone_mask & localized_change & (value > 70)
+        ).astype(np.uint8) * 255
+        edge_candidates = cv2.morphologyEx(
+            edge_candidates, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
+        )
+        front_count, _, front_stats, _ = cv2.connectedComponentsWithStats(
+            edge_candidates
+        )
+        for index in range(1, front_count):
+            x, y, box_width, box_height, area = front_stats[index]
+            if area < 6 or area > width * height * 0.006:
+                continue
+            center_x = x + box_width / 2.0
+            center_y = y + box_height / 2.0
+            horizontal_corner = "left" if center_x < width / 2 else "right"
+            vertical_corner = "top" if center_y < height / 2 else "bottom"
+            is_corner = min(center_x, width - center_x) < corner_zone and min(
+                center_y, height - center_y
+            ) < corner_zone
+            nearest_edge = min(
+                (
+                    (center_y, "top edge"),
+                    (width - center_x, "right edge"),
+                    (height - center_y, "bottom edge"),
+                    (center_x, "left edge"),
+                ),
+                key=lambda item: item[0],
+            )[1]
+            severity = defect_severity(int(area))
+            if is_corner:
+                corner_name = f"{vertical_corner}-{horizontal_corner}"
+                confirmed_corner_signals[corner_name] += area / max(
+                    1, edge_depth * corner_zone
+                )
+                corner_defect_count += 1
+                corner_defect_weight += defect_weight(severity)
+                finding_type = "Front corner anomaly"
+                location = f"front {corner_name} corner"
+            else:
+                edge_length = (
+                    width if nearest_edge in {"top edge", "bottom edge"} else height
+                )
+                confirmed_edge_signals[nearest_edge] += area / max(
+                    1, edge_depth * edge_length
+                )
+                edge_defect_count += 1
+                edge_defect_weight += defect_weight(severity)
+                finding_type = "Front edge anomaly"
+                location = f"front {nearest_edge}"
+            padding = 5
+            defects.append(
+                {
+                    "type": finding_type,
+                    "location": location,
+                    "severity": severity,
+                    "evidence": f"{int(area)} localized front-border pixels",
+                    "bbox": (
+                        int(max(0, x - padding)),
+                        int(max(0, y - padding)),
+                        int(min(width, x + box_width + padding)),
+                        int(min(height, y + box_height + padding)),
+                    ),
+                }
+            )
+
+        guides = centering["guides"]
+        surface_region = np.zeros((height, width), dtype=bool)
+        inset = max(5, round(min(height, width) * 0.008))
+        surface_region[
+            guides["top"] + inset : guides["bottom"] - inset,
+            guides["left"] + inset : guides["right"] - inset,
+        ] = True
+        scratch_mask = (
+            surface_region
+            & ((local_saturation - saturation) > 18)
+            & ((value - local_value) > 10)
+            & (saturation < 115)
+        ).astype(np.uint8) * 255
+        scratch_mask = cv2.morphologyEx(
+            scratch_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
+        )
+        scratch_count, scratch_labels, scratch_stats, _ = (
+            cv2.connectedComponentsWithStats(scratch_mask)
+        )
+        scratch_components = []
+        for index in range(1, scratch_count):
+            x, y, box_width, box_height, area = scratch_stats[index]
+            if area < 8:
+                continue
+            coordinates = np.column_stack(np.where(scratch_labels == index))
+            eigenvalues = np.linalg.eigvalsh(np.cov(coordinates, rowvar=False))
+            elongation = float(
+                np.sqrt(max(eigenvalues) / max(0.5, min(eigenvalues)))
+            )
+            line_length = max(1.0, float(np.sqrt(max(eigenvalues)) * 4.0))
+            line_thickness = area / line_length
+            if (
+                elongation < 5.0
+                or line_length < 12
+                or line_thickness < 2.0
+                or line_thickness > 6.0
+            ):
+                continue
+            scratch_components.append((area, x, y, box_width, box_height))
+        for area, x, y, box_width, box_height in sorted(
+            scratch_components, reverse=True
+        )[:20]:
+            severity = defect_severity(int(area))
+            defects.append(
+                {
+                    "type": "Surface scratch/crease candidate",
+                    "location": "front printed interior",
+                    "severity": severity,
+                    "evidence": f"{int(area)} localized interior pixels",
+                    "bbox": (
+                        int(max(0, x - 5)),
+                        int(max(0, y - 5)),
+                        int(min(width, x + box_width + 5)),
+                        int(min(height, y + box_height + 5)),
+                    ),
+                }
+            )
+        surface_anomaly_count = len(scratch_components)
+        surface_defect_weight = sum(
+            {"small": 0.10, "medium": 0.50, "high": 3.0}[
+                defect_severity(int(item[0]))
+            ]
+            for item in scratch_components
+        )
+        features["surface_damage"] = float(
+            np.clip(surface_defect_weight / 30.0, 0.0, 1.0)
+        )
+        features["surface_assessed"] = 1.0
+        surface_generic_inspection = True
 
     edge_boxes = {
         "top edge": (0, 0, width, strip),
@@ -993,6 +1147,7 @@ def _region_stats(
                 "sharpness_percent": round(features["sharpness"] * 100, 1),
                 "reference_compared": False,
                 "localized_border_inspection": surface_localized_inspection,
+                "generic_inspection": surface_generic_inspection,
                 "anomaly_count": surface_anomaly_count,
                 "severity_weight": round(surface_defect_weight, 2),
             },

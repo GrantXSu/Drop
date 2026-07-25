@@ -112,6 +112,10 @@ def test_analyze_image_extracts_normalized_features() -> None:
     assert set(analysis.features) == set(BASE_FEATURES)
     assert all(np.isfinite(value) for value in analysis.features.values())
     assert all(0.0 <= value <= 1.0 for value in analysis.features.values())
+    assert analysis.features["surface_assessed"] == 1.0
+    assert analysis.diagnostics["condition_signals"]["surface"][
+        "generic_inspection"
+    ]
     distances = analysis.diagnostics["centering"]["distances"]
     side_anchor = (distances["left"] + distances["right"]) / 2
     assert distances["top"] <= side_anchor * 1.8
@@ -183,6 +187,24 @@ def test_front_bottom_centering_ignores_copyright_text() -> None:
 
     assert 35 <= centering["distances"]["bottom"] <= 45
     assert centering["layout_adjustment"] is None
+
+
+def test_generic_front_inspects_corners_edges_and_surface() -> None:
+    card = np.full((CARD_HEIGHT, CARD_WIDTH, 3), (30, 200, 235), dtype=np.uint8)
+    cv2.rectangle(card, (0, 0), (12, 16), (245, 245, 245), -1)
+    cv2.rectangle(card, (340, 0), (365, 9), (245, 245, 245), -1)
+    cv2.line(card, (170, 260), (580, 610), (250, 250, 250), 3)
+
+    features, diagnostics = _region_stats(card, side="front")
+    finding_types = {finding["type"] for finding in diagnostics["defects"]}
+
+    assert "Front corner anomaly" in finding_types
+    assert "Front edge anomaly" in finding_types
+    assert "Surface scratch/crease candidate" in finding_types
+    assert features["corner_defect_load"] > 0
+    assert features["edge_defect_load"] > 0
+    assert features["surface_assessed"] == 1.0
+    assert features["surface_damage"] > 0
 
 
 def test_front_centering_rejects_content_bars_beyond_physical_limit() -> None:
@@ -336,7 +358,8 @@ def test_inner_blue_border_streak_is_edge_not_surface() -> None:
     assert "Border print-line candidate" in finding_types
     assert "Localized whitening" not in finding_types
     assert features["edge_defect_load"] > 0
-    assert features["surface_assessed"] == 0.0
+    assert features["surface_assessed"] == 1.0
+    assert features["surface_damage"] == 0.0
 
 
 def test_tiny_inner_border_streak_is_labeled_small_edge_mark() -> None:
@@ -829,7 +852,7 @@ def test_grade_api_returns_breakdown(monkeypatch, tmp_path: Path) -> None:
         category["score"] is None or 1.0 <= category["score"] <= 10.0
         for category in payload["categories"]
     )
-    assert payload["categories"][-1]["condition"] == "Not assessed"
+    assert payload["categories"][-1]["score"] is not None
     assert payload["prediction"]["label"]
     assert payload["billing"]["remaining_today"] == 2
     assert "Add a back photo" in payload["warnings"][-1]

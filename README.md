@@ -329,6 +329,10 @@ undamaged Pokémon back at least 1000 pixels on its short edge. CardLens stores
 the normalized reference for that signed device, aligns future backs to it, and
 uses reference differences for back corners, edges, and surface while
 suppressing the printed swirl and Poké Ball artwork.
+Every scan now produces a generic Surface assessment on both front and back.
+Front generic analysis also inspects 12% corner zones and outer edge bands.
+Confidently matched references replace those generic findings with aligned
+card-specific corner, edge, and interior-surface comparison.
 For confidently matched fronts, aligned clean-reference comparison covers the
 usable full card rather than excluding the outer border. Unmatched components
 in 12% corner zones affect Corners, components in 7% edge bands affect Edges,
