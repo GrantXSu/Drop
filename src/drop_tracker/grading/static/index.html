@@ -1,0 +1,1586 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>CardLens — Pokémon Grade Estimate</title>
+  <style>
+    :root { --ink:#182033; --muted:#697086; --paper:#fffdf8; --line:#e5e1d8; --blue:#3157d5; --gold:#f5be39; --red:#d94c56; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:radial-gradient(circle at top left,#e8edff 0,transparent 32%),#f4f1ea; font:16px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    .shell { width:min(1080px,calc(100% - 32px)); margin:0 auto; padding:28px 0 110px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:36px; }
+    .header-statuses { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
+    .brand { font-weight:850; letter-spacing:-.04em; font-size:24px; }
+    .brand span { color:var(--blue); }
+    .status { font-size:13px; color:var(--muted); padding:7px 11px; border:1px solid var(--line); border-radius:999px; background:#ffffffa8; }
+    .plan-status { min-height:0; padding:7px 11px; border:1px solid #b9c4ef; border-radius:999px; color:#2442a1; background:#eef1ff; font-size:12px; }
+    .hero { max-width:720px; margin-bottom:28px; }
+    h1 { margin:0 0 12px; font-size:clamp(38px,7vw,72px); line-height:.98; letter-spacing:-.065em; }
+    .hero p { max-width:630px; color:var(--muted); font-size:18px; }
+    .panel { background:var(--paper); border:1px solid var(--line); border-radius:24px; box-shadow:0 18px 50px #25335a12; padding:24px; }
+    .uploads { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+    .drop { position:relative; min-height:330px; border:1.5px dashed #b9b7b1; border-radius:18px; overflow:hidden; background:#f8f6f0; display:grid; place-items:center; text-align:center; cursor:pointer; transition:.2s; }
+    .drop:hover,.drop:focus-within { border-color:var(--blue); background:#f2f4ff; }
+    .drop input { position:absolute; inset:0; width:100%; opacity:0; cursor:pointer; }
+    .drop img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#eeeae2; display:none; }
+    .drop.has-image img { display:block; }
+    .drop-copy strong { display:block; font-size:18px; }
+    .drop-copy span { color:var(--muted); font-size:14px; }
+    .tag { position:absolute; z-index:2; top:12px; left:12px; border-radius:999px; padding:6px 10px; background:#171c29de; color:white; font-size:12px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+    .photo-meta { display:none; position:absolute; z-index:2; right:12px; bottom:12px; padding:5px 8px; border-radius:8px; color:#fff; background:#1c664cde; font-size:11px; font-weight:750; }
+    .photo-meta.warning { background:#9a4b19e8; }
+    .actions { display:flex; gap:14px; align-items:center; margin-top:18px; }
+    button { appearance:none; min-height:44px; border:0; border-radius:12px; padding:12px 20px; background:var(--blue); color:#fff; font:inherit; font-weight:780; cursor:pointer; }
+    button:hover { filter:brightness(1.08); }
+    button:disabled { opacity:.55; cursor:wait; }
+    .secondary-button { color:var(--ink); background:#e4e8f5; }
+    .hint { color:var(--muted); font-size:13px; }
+    .error { display:none; margin-top:16px; padding:12px 14px; color:#7e1d26; background:#ffe9e9; border-radius:10px; }
+    .capture-guide { margin-bottom:16px; border:1px solid #d8dced; border-radius:12px; background:#f6f7fc; }
+    .capture-guide summary { padding:11px 13px; cursor:pointer; font-weight:800; }
+    .capture-guide ul { margin:0; padding:0 28px 13px 34px; color:var(--muted); font-size:14px; }
+    .results { display:none; margin-top:22px; }
+    .identity { display:none; align-items:center; gap:16px; margin-bottom:18px; padding:14px; border:1px solid var(--line); border-radius:14px; background:#f5f7ff; }
+    .identity img { width:70px; height:98px; object-fit:contain; border-radius:6px; }
+    .identity strong { display:block; font-size:19px; }
+    .identity span { color:var(--muted); font-size:14px; }
+    .identity-search { width:100%; }
+    .card-search-row { display:flex; gap:8px; margin-top:10px; }
+    .card-search-row input { min-width:0; flex:1; padding:10px 12px; border:1px solid #c9cfe1; border-radius:9px; font:inherit; }
+    .card-search-row button { padding:10px 13px; }
+    .card-search-results { display:grid; gap:7px; max-height:300px; overflow:auto; margin-top:10px; }
+    .card-search-result { display:grid; grid-template-columns:42px 1fr auto; gap:9px; align-items:center; padding:8px; border:1px solid var(--line); border-radius:9px; background:#fff; }
+    .card-result-image { display:grid; place-items:center; width:42px; height:58px; overflow:hidden; border-radius:5px; color:var(--muted); background:#ece9e2; font-size:9px; text-align:center; }
+    .card-result-image img { grid-area:1/1; width:42px; height:58px; object-fit:contain; background:#fff; }
+    .card-result-image span { display:none; grid-area:1/1; }
+    .card-result-image.missing img { display:none; }
+    .card-result-image.missing span { display:block; }
+    .card-search-result button { padding:8px 10px; font-size:12px; }
+    .prescan-card { margin-bottom:14px; padding:12px; border:1px solid #d8dced; border-radius:12px; background:#f7f8fd; }
+    .prescan-card > span { color:var(--muted); font-size:13px; }
+    .selected-card { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:9px; padding:9px 10px; border-radius:9px; color:#225238; background:#e8f7ed; }
+    .selected-card[hidden] { display:none; }
+    .selected-card button { min-height:36px; padding:7px 10px; color:var(--ink); background:#d4eadb; font-size:12px; }
+    .result-grid { display:grid; grid-template-columns:240px 1fr; gap:28px; }
+    .grade-card { border-radius:18px; background:var(--ink); color:white; padding:24px; min-height:240px; display:flex; flex-direction:column; justify-content:space-between; }
+    .grade-card small { color:#bac3db; text-transform:uppercase; letter-spacing:.12em; font-weight:750; }
+    .grade { font-size:92px; line-height:1; letter-spacing:-.08em; color:var(--gold); font-weight:900; }
+    .grade-label { font-size:20px; font-weight:800; }
+    .range { color:#d7dcec; font-size:13px; }
+    h2 { margin:0 0 15px; font-size:28px; letter-spacing:-.04em; }
+    .metric { display:grid; grid-template-columns:110px 1fr 46px; gap:12px; align-items:center; margin:17px 0; }
+    .metric-copy { display:flex; flex-direction:column; }
+    .metric-copy small { color:var(--muted); }
+    .metric-detail { grid-column:1/-1; margin:-8px 0 4px; color:var(--muted); font-size:12px; }
+    .bar { height:8px; border-radius:99px; overflow:hidden; background:#e9e6df; }
+    .bar i { display:block; height:100%; background:linear-gradient(90deg,var(--red),var(--gold),#50a879); border-radius:inherit; }
+    .surface-gate { display:grid; gap:10px; margin-top:8px; padding:14px; border:1px solid #d7b56a; border-radius:12px; background:#fff7e6; }
+    .surface-gate strong { display:block; font-size:15px; }
+    .surface-gate span { color:#6d5320; font-size:13px; }
+    .surface-gate button { width:fit-content; }
+    .identity-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .identity-actions button { min-height:36px; padding:8px 11px; font-size:12px; }
+    .candidate-list { display:grid; gap:7px; width:100%; margin-top:10px; }
+    .warnings { color:#765d18; background:#fff4d7; border-radius:12px; padding:12px 16px; margin-top:16px; font-size:14px; }
+    .disclaimer { color:var(--muted); margin-top:16px; font-size:13px; }
+    .evidence { margin-top:34px; padding-top:28px; border-top:1px solid var(--line); }
+    .evidence-intro { color:var(--muted); max-width:720px; }
+    .evidence-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-top:18px; }
+    .evidence-card { border:1px solid var(--line); border-radius:16px; overflow:hidden; background:#fff; }
+    .evidence-card img { display:block; width:100%; max-height:580px; object-fit:contain; background:#e8e5de; }
+    .image-caption { margin:0; padding:7px 12px; color:var(--muted); background:#f4f2ec; font-size:12px; font-weight:750; text-transform:uppercase; letter-spacing:.08em; }
+    .evidence-copy { padding:18px; }
+    .evidence-copy h3 { margin:0 0 12px; font-size:22px; }
+    .measurements { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:15px; }
+    .measurement { border-radius:999px; padding:6px 10px; background:#edf0fa; font-size:13px; font-weight:750; }
+    .finding { display:grid; grid-template-columns:10px 1fr; gap:10px; width:100%; min-height:0; margin-top:12px; padding:3px; color:var(--ink); background:transparent; text-align:left; }
+    .finding:hover { background:#f2e8e8; }
+    .finding-dot { width:10px; height:10px; margin-top:6px; border-radius:50%; background:var(--red); }
+    .finding small { display:block; color:var(--muted); }
+    .finding-focus { margin:10px 12px; padding:10px; border:2px solid var(--red); border-radius:12px; background:#fff5f5; }
+    .finding-focus[hidden] { display:none; }
+    .finding-focus img { width:100%; max-height:420px; object-fit:contain; background:#eeeae2; }
+    .finding-focus-copy { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-top:7px; }
+    .finding-focus-copy button { width:auto; min-height:36px; padding:7px 10px; color:var(--ink); background:#e9dede; }
+    .finding-target-flash { animation:finding-flash 1.2s ease-out; }
+    @keyframes finding-flash { 0%,45% { outline:6px solid var(--red); } 100% { outline:0 solid transparent; } }
+    .findings-dropdown { margin-top:14px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#faf9f5; }
+    .findings-dropdown summary { display:flex; justify-content:space-between; gap:12px; padding:12px 14px; cursor:pointer; font-weight:800; }
+    .findings-dropdown summary small { color:var(--muted); font-weight:600; }
+    .findings-list { max-height:360px; overflow:auto; padding:0 14px 14px; border-top:1px solid var(--line); }
+    .guide-editor { margin:14px 0; padding:12px 13px; border:1px solid #cfd6ef; border-radius:12px; background:#f5f7ff; }
+    .guide-editor p { margin:8px 0 0; color:var(--muted); font-size:13px; }
+    .guide-actions { display:flex; flex-wrap:wrap; gap:8px; }
+    .guide-actions button { padding:9px 12px; font-size:13px; }
+    .guide-actions .reset-guides { color:var(--ink); background:#e4e7f1; }
+    .guide-actions .cancel-guides { color:var(--ink); background:#e4e7f1; }
+    .guide-canvas { position:relative; width:min(100%,414px); aspect-ratio:5/7; margin:0 auto; overflow:hidden; background:#e8e5de; touch-action:none; }
+    .guide-canvas[hidden],.guide-apply-actions[hidden] { display:none; }
+    .guide-canvas img { width:100%; height:100%; max-height:none; object-fit:fill; pointer-events:none; }
+    .drag-guide { position:absolute; z-index:3; background:#34f05e; box-shadow:0 0 0 2px #152217; touch-action:none; }
+    .drag-guide.vertical { top:0; bottom:0; width:3px; cursor:ew-resize; transform:translateX(-50%); }
+    .drag-guide.horizontal { left:0; right:0; height:3px; cursor:ns-resize; transform:translateY(-50%); }
+    .drag-guide span { position:absolute; padding:2px 5px; border-radius:5px; color:#102015; background:#9bffac; font-size:11px; font-weight:850; white-space:nowrap; }
+    .drag-guide.vertical span { top:6px; left:5px; }
+    .drag-guide.horizontal span { top:5px; left:6px; }
+    .drag-guide[data-guide="right"] span { right:5px; left:auto; }
+    .drag-guide[data-guide="bottom"] span { top:auto; bottom:5px; }
+    .drag-guide.vertical::before { content:""; position:absolute; inset:0 -12px; }
+    .drag-guide.horizontal::before { content:""; position:absolute; inset:-12px 0; }
+    .guide-apply-actions { display:flex; justify-content:center; gap:8px; padding:10px; background:#f5f7ff; }
+    .source-adjust-canvas { position:relative; width:100%; overflow:hidden; background:#e8e5de; touch-action:none; }
+    .source-adjust-canvas[hidden],.boundary-actions[hidden] { display:none; }
+    .source-adjust-canvas img { display:block; width:100%; height:100%; max-height:none; object-fit:fill; pointer-events:none; }
+    .source-adjust-canvas svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+    .boundary-polygon { fill:#43ff6617; stroke:#43ff66; stroke-width:5; vector-effect:non-scaling-stroke; }
+    .boundary-handle { fill:#43ff66; stroke:#14251a; stroke-width:3; vector-effect:non-scaling-stroke; cursor:move; touch-action:none; }
+    .boundary-actions { display:flex; justify-content:center; gap:8px; padding:10px; background:#f5f7ff; }
+    .boundary-editor { margin:0 0 14px; }
+    .boundary-editor p { margin:8px 0 0; color:var(--muted); font-size:13px; }
+    .camera-modal { position:fixed; z-index:50; inset:0; display:grid; place-items:center; padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom)); background:#060913e8; }
+    .camera-modal[hidden] { display:none; }
+    .camera-sheet { display:flex; flex-direction:column; width:min(620px,100%); height:min(900px,calc(100vh - 24px)); height:min(900px,calc(100dvh - 24px)); max-height:100%; overflow:hidden; border-radius:18px; background:var(--paper); }
+    .camera-header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; }
+    .camera-header strong { font-size:18px; }
+    .camera-header button { width:auto; padding:8px 12px; color:var(--ink); background:#e4e7f1; }
+    .camera-header,.camera-captures,.camera-side-selector,.camera-controls { flex:0 0 auto; }
+    .camera-view { position:relative; flex:1 1 auto; min-height:0; overflow:hidden; background:#090b11; }
+    .camera-view video { width:100%; height:100%; object-fit:cover; }
+    .camera-frame { position:absolute; top:50%; left:50%; width:auto; height:88%; max-width:72%; aspect-ratio:5/7; transform:translate(-50%,-50%); border:3px solid #50ff72; border-radius:4%; box-shadow:0 0 0 999px #0004; pointer-events:none; }
+    .camera-captures { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:10px 12px 0; }
+    .camera-capture-slot { display:grid; grid-template-columns:44px 1fr; gap:8px; align-items:center; min-height:58px; padding:6px; border:1px dashed #b9b7b1; border-radius:10px; color:var(--muted); background:#f5f3ed; }
+    .camera-capture-slot img { display:none; width:44px; height:58px; object-fit:cover; border-radius:5px; }
+    .camera-capture-slot.ready { color:#266142; border-style:solid; border-color:#67bd86; background:#e9f8ee; }
+    .camera-capture-slot.ready img { display:block; }
+    .camera-capture-slot b,.camera-capture-slot span { display:block; }
+    .camera-capture-slot span { font-size:11px; }
+    .camera-side-selector { display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:10px 12px 0; }
+    .camera-side-selector button { color:var(--ink); background:#e4e7f1; }
+    .camera-side-selector button.active { color:#fff; background:var(--blue); }
+    .camera-controls { position:static; display:grid; gap:9px; padding:10px 12px max(12px,env(safe-area-inset-bottom)); background:var(--paper); }
+    .camera-shutter { min-height:54px; font-size:17px; }
+    .camera-controls .captured { color:#16482b; background:#9ce5b4; }
+    .camera-status { min-height:22px; margin:0; color:var(--muted); text-align:center; font-size:13px; }
+    #native-camera-input { display:none; }
+    .pricing-modal { position:fixed; z-index:60; inset:0; display:grid; place-items:center; padding:16px; background:#060913d9; }
+    .pricing-modal[hidden] { display:none; }
+    .pricing-sheet { width:min(760px,100%); max-height:95vh; overflow:auto; padding:20px; border-radius:20px; background:var(--paper); }
+    .pricing-header { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+    .pricing-header h2 { margin:0; }
+    .pricing-header button { width:auto; color:var(--ink); background:#e4e7f1; }
+    .pricing-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:16px; }
+    .price-card { display:flex; flex-direction:column; gap:10px; padding:18px; border:1px solid var(--line); border-radius:15px; background:#fff; }
+    .price-card.pro { border:2px solid var(--blue); background:#f5f7ff; }
+    .price-card h3,.price-card p { margin:0; }
+    .price { font-size:32px; font-weight:900; letter-spacing:-.04em; }
+    .price-card ul { flex:1; margin:0; padding-left:19px; color:var(--muted); }
+    .annual-offer { margin-top:8px; padding-top:10px; border-top:1px solid #d9def2; }
+    .billing-note { color:var(--muted); font-size:12px; margin-bottom:0; }
+    .app-page[hidden] { display:none; }
+    .page-heading { margin-bottom:20px; }
+    .page-heading h1 { font-size:clamp(34px,6vw,54px); }
+    .page-heading p { color:var(--muted); }
+    .history-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .history-card { display:grid; grid-template-columns:68px 1fr; gap:12px; padding:13px; border:1px solid var(--line); border-radius:14px; background:#fff; cursor:pointer; text-align:left; width:100%; color:inherit; font:inherit; }
+    .history-card img,.history-placeholder { width:68px; height:95px; object-fit:contain; border-radius:7px; background:#ece9e2; }
+    .history-card h3 { margin:0; font-size:17px; }
+    .history-card p { margin:2px 0; color:var(--muted); font-size:12px; }
+    .history-card[aria-expanded="true"] { border-color:#b9c4ef; background:#f7f8fd; }
+    .history-details { grid-column:1/-1; display:none; padding-top:8px; border-top:1px solid var(--line); }
+    .history-card[aria-expanded="true"] .history-details { display:grid; gap:6px; }
+    .history-details span { display:flex; justify-content:space-between; gap:10px; font-size:13px; }
+    .history-details small { color:var(--muted); }
+    .history-grade { font-size:28px; color:#a16e00; font-weight:900; }
+    .empty-state { padding:30px; border:1px dashed #c8c5bd; border-radius:15px; color:var(--muted); text-align:center; }
+    .pro-ad { position:relative; display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; margin:0 0 16px; padding:17px 48px 17px 18px; overflow:hidden; border-radius:17px; color:#fff; background:linear-gradient(120deg,#243bba,#7552d5 58%,#d68032); box-shadow:0 12px 30px #273a8e2b; }
+    .pro-ad[hidden] { display:none; }
+    .pro-ad::after { content:""; position:absolute; width:170px; height:170px; right:-55px; top:-90px; border:30px solid #ffffff1f; border-radius:50%; pointer-events:none; }
+    .pro-ad-label { position:relative; z-index:1; padding:6px 9px; border:1px solid #ffffff5c; border-radius:999px; background:#111b6599; font-size:11px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+    .pro-ad-copy { position:relative; z-index:1; }
+    .pro-ad-copy strong { display:block; font-size:20px; }
+    .pro-ad-copy span { color:#eef0ff; font-size:13px; }
+    .pro-ad-cta { position:relative; z-index:2; min-height:40px; padding:9px 13px; color:#243071; background:#fff; }
+    .pro-ad-close { position:absolute; z-index:3; top:5px; right:6px; width:34px; min-height:34px; padding:0; color:#fff; background:transparent; font-size:20px; }
+    .settings-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .settings-card { padding:17px; border:1px solid var(--line); border-radius:15px; background:#fff; }
+    .settings-card h3 { margin:0 0 8px; }
+    .settings-card p { color:var(--muted); }
+    .settings-card button { margin:4px 4px 0 0; }
+    .settings-card input[type="file"] { width:100%; margin:6px 0; }
+    .reference-message { min-height:20px; color:var(--muted); font-size:12px; }
+    .reference-preview { display:none; width:84px; height:118px; margin:8px 0; object-fit:contain; border-radius:8px; background:#ece9e2; border:1px solid var(--line); }
+    .reference-preview.has-image { display:block; }
+    #clean-back-card { scroll-margin-top:88px; }
+    #clean-back-card.highlight-target { box-shadow:0 0 0 3px #f5be39aa; }
+    .bottom-nav { position:fixed; z-index:40; left:50%; bottom:max(10px,env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(3,1fr); width:min(430px,calc(100% - 20px)); transform:translateX(-50%); border:1px solid #d7d4cc; border-radius:19px; overflow:hidden; background:#fffdf8ed; box-shadow:0 12px 40px #17213a2b; backdrop-filter:blur(14px); }
+    .bottom-nav a { display:flex; flex-direction:column; align-items:center; gap:1px; padding:9px 5px 8px; color:var(--muted); text-decoration:none; font-size:11px; font-weight:750; }
+    .bottom-nav a span:first-child { font-size:20px; line-height:1; }
+    .bottom-nav a.active { color:var(--blue); background:#edf1ff; }
+    .signals { display:grid; gap:9px; margin:16px 0; }
+    .signal { padding:10px 12px; border-radius:10px; background:#f5f3ed; font-size:13px; }
+    .signal b { display:block; margin-bottom:3px; }
+    .signal span { color:var(--muted); }
+    .clear { color:#31704b; background:#e6f7ec; border-radius:10px; padding:10px 12px; }
+    .legend { display:flex; gap:16px; color:var(--muted); font-size:12px; margin-top:12px; }
+    .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
+    .legend .green { background:#60dc78; } .legend .red { background:#f04b41; }
+    .legend .outer { background:#28d9ff; }
+    .legend .cyan { background:#28d9ff; }
+    @media (max-width:720px) {
+      .uploads,.result-grid,.evidence-grid { grid-template-columns:1fr; }
+      .drop { min-height:250px; }
+      .actions { align-items:stretch; flex-direction:column; }
+      .actions button { width:100%; }
+      .identity { align-items:flex-start; }
+    }
+    @media (max-width:820px) and (orientation:portrait) {
+      .camera-modal { padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+      .camera-sheet { display:flex; flex-direction:column; width:100%; height:100vh; height:100dvh; max-height:none; overflow:hidden; border-radius:0; }
+      .camera-header,.camera-captures,.camera-side-selector,.camera-controls { flex:0 0 auto; }
+      .camera-view { flex:1 1 auto; min-height:0; max-height:none; aspect-ratio:auto; }
+      .camera-frame { width:auto; height:88%; max-width:72%; }
+      .camera-controls { position:static; padding-bottom:max(12px,env(safe-area-inset-bottom)); background:var(--paper); }
+      .camera-status { min-height:18px; line-height:1.2; }
+    }
+    @media (max-width:600px) {
+      body { font-size:15px; }
+      .shell { width:100%; padding:14px 8px calc(90px + env(safe-area-inset-bottom)); }
+      header { gap:8px; margin:0 4px 22px; }
+      .brand { font-size:21px; }
+      .status { max-width:52%; text-align:center; font-size:11px; }
+      .header-statuses { flex-direction:column; align-items:flex-end; gap:4px; }
+      .status { max-width:100%; }
+      .plan-status { width:auto; min-height:0; }
+      .hero { margin:0 6px 20px; }
+      h1 { font-size:38px; letter-spacing:-.05em; }
+      .hero p { font-size:15px; }
+      .panel { padding:11px; border-radius:17px; }
+      .uploads { gap:10px; }
+      .drop { min-height:230px; border-radius:13px; }
+      .actions { position:sticky; bottom:calc(72px + env(safe-area-inset-bottom)); z-index:8; padding:8px; margin:10px -3px 0; border-radius:14px; background:#fffdf8e8; backdrop-filter:blur(10px); }
+      .hint { text-align:center; }
+      .result-grid { gap:16px; }
+      .grade-card { min-height:180px; padding:18px; }
+      .grade { font-size:68px; }
+      h2 { font-size:24px; }
+      .metric { grid-template-columns:88px 1fr 38px; gap:8px; }
+      .metric-copy small { font-size:11px; }
+      .evidence { margin-top:24px; padding-top:20px; }
+      .evidence-grid { gap:12px; }
+      .evidence-copy { padding:13px; }
+      .evidence-copy h3 { font-size:20px; }
+      .legend { flex-wrap:wrap; }
+      .identity { flex-direction:column; padding:11px; }
+      .identity img { width:58px; height:81px; }
+      .card-search-row { flex-direction:column; }
+      .card-search-result { grid-template-columns:38px 1fr; }
+      .card-search-result button { grid-column:1/-1; width:100%; }
+      .guide-editor,.guide-apply-actions { padding-left:9px; padding-right:9px; }
+      .guide-actions button,.guide-apply-actions button,.boundary-actions button { width:100%; }
+      .camera-sheet { width:100%; border-radius:0; }
+      .pricing-modal { padding:0; }
+      .pricing-sheet { width:100%; height:100%; max-height:none; border-radius:0; padding:14px; }
+      .pricing-grid { grid-template-columns:1fr; }
+      .history-grid,.settings-grid { grid-template-columns:1fr; }
+      .bottom-nav { bottom:max(5px,env(safe-area-inset-bottom)); border-radius:16px; }
+      .pro-ad { grid-template-columns:1fr; gap:8px; padding:14px 42px 14px 14px; }
+      .pro-ad-label { width:max-content; }
+      .pro-ad-cta { width:100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand">Card<span>Lens</span></div>
+      <div class="header-statuses">
+        <div class="status" id="model-status">Checking model…</div>
+        <button class="plan-status" id="plan-status" type="button">Checking plan…</button>
+      </div>
+    </header>
+    <section class="app-page" id="analyze-page" data-page="analyze">
+    <section class="hero">
+      <h1>See the card.<br>Estimate the grade.</h1>
+      <p>Upload or photograph both sides in even light. CardLens returns a digital condition report with a decimal grade and centering, corner, edge, and surface subgrades.</p>
+    </section>
+    <aside class="pro-ad" data-pro-ad hidden>
+      <span class="pro-ad-label">CardLens Pro</span>
+      <div class="pro-ad-copy">
+        <strong>Keep grading after your three free cards.</strong>
+        <span>Unlock unlimited analyses for $9.99/month. Cancel any time.</span>
+      </div>
+      <button class="pro-ad-cta" type="button">View Pro</button>
+      <button class="pro-ad-close" type="button" aria-label="Dismiss Pro promotion">×</button>
+    </aside>
+    <section class="panel">
+      <details class="capture-guide">
+        <summary>Accuracy checklist before scanning</summary>
+        <ul>
+          <li>Use the original camera image at high resolution; avoid screenshots.</li>
+          <li>Remove sleeves and holders, use diffuse light, and turn off flash.</li>
+          <li>Keep all four corners visible against a contrasting plain surface.</li>
+          <li>Upload both front and back photos for centering, corners, and edges.</li>
+          <li>Save one sharp, undamaged Pokémon back in Settings → Clean back calibration (≥1000px short edge) before Surface can be graded.</li>
+        </ul>
+      </details>
+      <div class="prescan-card">
+        <strong>Select your card before scanning <small>· optional</small></strong>
+        <span>Search by name, number, set, or card ID to use the exact clean reference. Developer access can also be unlocked here.</span>
+        <div class="card-search-row">
+          <input id="prescan-card-query" type="search" placeholder="Card name and number, e.g. Pikachu 065">
+          <button id="prescan-card-search" type="button">Search cards</button>
+        </div>
+        <div class="card-search-results" id="prescan-card-results"></div>
+        <div class="selected-card" id="prescan-selected-card" hidden>
+          <span></span>
+          <button id="clear-selected-card" type="button">Clear</button>
+        </div>
+      </div>
+      <div class="uploads">
+        <label class="drop" id="front-drop">
+          <span class="tag">Front · required</span>
+          <span class="photo-meta"></span>
+          <input id="front" name="front" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" required>
+          <img alt="Front card preview">
+          <span class="drop-copy"><strong>Photograph card front</strong><span>or choose an image</span></span>
+        </label>
+        <label class="drop" id="back-drop">
+          <span class="tag">Back · recommended</span>
+          <span class="photo-meta"></span>
+          <input id="back" name="back" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+          <img alt="Back card preview">
+          <span class="drop-copy"><strong>Photograph card back</strong><span>improves the estimate</span></span>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="scan" type="button">Analyze card</button>
+        <button id="camera-mode" class="secondary-button" type="button">Use camera</button>
+        <span class="hint">Remove sleeves. Use a plain dark background and avoid glare.</span>
+      </div>
+      <div class="error" id="error" role="alert"></div>
+      <section class="results" id="results" aria-live="polite">
+        <div class="identity" id="identity"></div>
+        <div class="result-grid">
+          <div class="grade-card">
+            <small>Estimated grade</small>
+            <div class="grade" id="grade">—</div>
+            <div class="grade-label" id="grade-label"></div>
+            <div class="range" id="range"></div>
+          </div>
+          <div>
+            <h2>Visual breakdown</h2>
+            <div id="metrics"></div>
+            <div class="warnings" id="warnings"></div>
+            <div class="disclaimer" id="caveat"></div>
+          </div>
+        </div>
+        <section class="evidence" id="evidence">
+          <h2>Detailed inspection report</h2>
+          <p class="evidence-intro">Each card is perspective-corrected to 750 × 1050 pixels. Green guides mark the inner printed edge; the report measures from each physical outer edge to that guide, then compares opposite borders. Red regions show localized suspected defects.</p>
+          <div class="evidence-grid" id="visual-reports"></div>
+          <div class="legend"><span><i class="outer"></i>Outer physical border</span><span><i class="green"></i>Inner printed border</span><span><i class="red"></i>Suspected edge defect</span></div>
+        </section>
+      </section>
+    </section>
+    </section>
+    <section class="app-page" id="cards-page" data-page="cards" hidden>
+      <div class="page-heading">
+        <h1>My graded cards</h1>
+        <p>Cards analyzed on this device. Recalculating the same scan updates its saved result.</p>
+      </div>
+      <aside class="pro-ad" data-pro-ad hidden>
+        <span class="pro-ad-label">Annual Pro</span>
+        <div class="pro-ad-copy">
+          <strong>Build your collection without a daily cap.</strong>
+          <span>Unlimited grading for $59.99/year — save 50% versus monthly.</span>
+        </div>
+        <button class="pro-ad-cta" type="button">See annual plan</button>
+        <button class="pro-ad-close" type="button" aria-label="Dismiss Pro promotion">×</button>
+      </aside>
+      <div class="history-grid" id="history-grid">
+        <div class="empty-state">Loading graded cards…</div>
+      </div>
+    </section>
+    <section class="app-page" id="settings-page" data-page="settings" hidden>
+      <div class="page-heading">
+        <h1>Settings</h1>
+        <p>Manage your plan, model status, stored history, and scanner preferences.</p>
+      </div>
+      <div class="settings-grid">
+        <article class="settings-card">
+          <h3>Plan and usage</h3>
+          <p id="settings-plan">Checking plan…</p>
+          <button id="settings-pricing" type="button">View plans</button>
+          <button id="settings-manage-billing" class="secondary-button" type="button" hidden>Manage billing</button>
+        </article>
+        <article class="settings-card">
+          <h3>Grading model</h3>
+          <p id="settings-model">Checking model…</p>
+        </article>
+        <article class="settings-card">
+          <h3>Saved cards</h3>
+          <p>History is stored for this browser/device.</p>
+          <button id="clear-history" class="secondary-button" type="button">Clear graded-card history</button>
+        </article>
+        <article class="settings-card">
+          <h3>Accuracy</h3>
+          <p>Use high-resolution front/back photos, diffuse lighting, and verified training data.</p>
+        </article>
+        <article class="settings-card" id="clean-back-card">
+          <h3>Clean back calibration</h3>
+          <p>Upload one sharp, undamaged Pokémon card back (≥1000px short edge). CardLens aligns future backs against it for corners, edges, and Surface grading while ignoring printed swirls.</p>
+          <input id="back-reference-input" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+          <img class="reference-preview" id="back-reference-preview" alt="Saved clean back reference preview">
+          <button id="save-back-reference" type="button">Save clean back reference</button>
+          <button id="remove-back-reference" class="secondary-button" type="button" hidden>Remove reference</button>
+          <div class="reference-message" id="back-reference-message">No clean back reference saved · Surface stays Not assessed until this is ready.</div>
+        </article>
+      </div>
+    </section>
+  </main>
+  <nav class="bottom-nav" aria-label="CardLens pages">
+    <a href="/" data-nav="analyze"><span>⌾</span><span>Analyze</span></a>
+    <a href="/cards" data-nav="cards"><span>▣</span><span>My Cards</span></a>
+    <a href="/settings" data-nav="settings"><span>⚙</span><span>Settings</span></a>
+  </nav>
+  <section class="camera-modal" id="camera-modal" role="dialog" aria-modal="true" aria-label="Card camera" hidden>
+    <div class="camera-sheet">
+      <div class="camera-header">
+        <strong>Card camera</strong>
+        <button id="close-camera" type="button">Close</button>
+      </div>
+      <div class="camera-view">
+        <video id="camera-video" autoplay playsinline muted></video>
+        <div class="camera-frame" aria-hidden="true"></div>
+      </div>
+      <div class="camera-captures" aria-live="polite">
+        <div class="camera-capture-slot" id="camera-front-slot">
+          <img alt="Captured card front preview">
+          <div><b>Front slot</b><span>Not captured</span></div>
+        </div>
+        <div class="camera-capture-slot" id="camera-back-slot">
+          <img alt="Captured card back preview">
+          <div><b>Back slot</b><span>Not captured</span></div>
+        </div>
+      </div>
+      <div class="camera-side-selector" aria-label="Choose card side">
+        <button class="camera-side-button active" data-camera-side="front" type="button">Front</button>
+        <button class="camera-side-button" data-camera-side="back" type="button">Back</button>
+      </div>
+      <div class="camera-controls">
+        <button id="capture-photo" class="camera-shutter" type="button">Take picture for Front</button>
+        <button id="native-camera-trigger" class="camera-shutter secondary-button" type="button" hidden>Open device camera for Front</button>
+        <input id="native-camera-input" type="file" accept="image/*" capture="environment">
+        <button id="camera-analyze" class="camera-analyze" type="button" disabled>Analyze captured card</button>
+        <p class="camera-status" id="camera-status">Align all four card corners inside the green frame.</p>
+      </div>
+      <canvas id="camera-canvas" hidden></canvas>
+    </div>
+  </section>
+  <section class="pricing-modal" id="pricing-modal" role="dialog" aria-modal="true" aria-label="CardLens pricing" hidden>
+    <div class="pricing-sheet">
+      <div class="pricing-header">
+        <div><h2>CardLens plans</h2><span id="pricing-usage"></span></div>
+        <button id="close-pricing" type="button">Close</button>
+      </div>
+      <div class="pricing-grid">
+        <article class="price-card">
+          <h3>Free</h3>
+          <div class="price">$0</div>
+          <p>Try CardLens with no payment details.</p>
+          <ul>
+            <li>3 card analyses per UTC day</li>
+            <li>Full visual report and subgrades</li>
+            <li>Camera and manual guide controls</li>
+          </ul>
+        </article>
+        <article class="price-card pro">
+          <h3>CardLens Pro</h3>
+          <div class="price">$9.99 <small>/ month</small></div>
+          <p>Unlimited analysis for active collectors.</p>
+          <ul>
+            <li>Unlimited card analyses</li>
+            <li>All Free features</li>
+            <li>Cancel any time through Stripe</li>
+          </ul>
+          <button class="checkout-button" data-plan="monthly" type="button">Upgrade monthly</button>
+          <div class="annual-offer">
+            <b>$59.99 / year</b> · save 50%
+            <button class="checkout-button" data-plan="annual" type="button">Upgrade annually</button>
+          </div>
+          <button id="manage-billing" class="secondary-button" type="button" hidden>Manage subscription</button>
+        </article>
+      </div>
+      <p class="billing-note" id="billing-note">Payments are securely processed by Stripe. AI estimates are not official PSA/BGS grades.</p>
+    </div>
+  </section>
+  <script>
+    const front = document.querySelector("#front");
+    const back = document.querySelector("#back");
+    const scan = document.querySelector("#scan");
+    const cameraMode = document.querySelector("#camera-mode");
+    const cameraModal = document.querySelector("#camera-modal");
+    const cameraVideo = document.querySelector("#camera-video");
+    const cameraCanvas = document.querySelector("#camera-canvas");
+    const cameraStatus = document.querySelector("#camera-status");
+    const pricingModal = document.querySelector("#pricing-modal");
+    const planStatus = document.querySelector("#plan-status");
+    const errorBox = document.querySelector("#error");
+    const results = document.querySelector("#results");
+    const manualGuides = {};
+    const manualBoundaries = {};
+    const capturedFiles = { front:null, back:null };
+    let selectedCardId = null;
+    let cameraStream = null;
+    let currentScanId = null;
+    let billingStatus = null;
+
+    function newScanId() {
+      return crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function pageFromPath() {
+      if (location.pathname === "/cards") return "cards";
+      if (location.pathname === "/settings") return "settings";
+      return "analyze";
+    }
+
+    async function loadHistory() {
+      const grid = document.querySelector("#history-grid");
+      grid.innerHTML = `<div class="empty-state">Loading graded cards…</div>`;
+      try {
+        const response = await fetch("/api/history");
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "History could not load.");
+        grid.innerHTML = payload.cards.length
+          ? payload.cards.map((card, index) => {
+              const categoryText = card.categories
+                .map(category => category.score === null
+                  ? `${category.name} —`
+                  : `${category.name} ${Number(category.score).toFixed(1)}`)
+                .join(" · ");
+              const details = card.categories.map(category => `
+                <span>
+                  <b>${escapeHtml(category.name)}</b>
+                  <span>${category.score === null ? "—" : Number(category.score).toFixed(1)}</span>
+                </span>
+                <small>${escapeHtml(category.condition || "")}${category.detail ? ` · ${escapeHtml(category.detail)}` : ""}</small>
+              `).join("");
+              return `
+                <button class="history-card" type="button" data-history-index="${index}" aria-expanded="false">
+                  ${card.image_url
+                    ? `<img src="${card.image_url}" alt="">`
+                    : `<div class="history-placeholder"></div>`}
+                  <div>
+                    <h3>${escapeHtml(card.name)}</h3>
+                    <p>${escapeHtml(card.set_name || "")}${card.number ? ` · ${escapeHtml(card.number)}` : ""}</p>
+                    <div class="history-grade">${Number(card.grade).toFixed(1)}</div>
+                    <p>${escapeHtml(card.label)} · ${new Date(card.created_at).toLocaleString()}</p>
+                    <p>${escapeHtml(categoryText)}</p>
+                  </div>
+                  <div class="history-details">${details}</div>
+                </button>`;
+            }).join("")
+          : `<div class="empty-state">No cards graded yet. Analyze a card and it will appear here.</div>`;
+        grid.querySelectorAll("[data-history-index]").forEach(card => {
+          card.addEventListener("click", () => {
+            const open = card.getAttribute("aria-expanded") === "true";
+            grid.querySelectorAll("[data-history-index]").forEach(other => {
+              other.setAttribute("aria-expanded", "false");
+            });
+            card.setAttribute("aria-expanded", open ? "false" : "true");
+          });
+        });
+      } catch (error) {
+        grid.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    function openCleanBackSettings() {
+      showPage("settings");
+      const card = document.querySelector("#clean-back-card");
+      if (!card) return;
+      card.classList.add("highlight-target");
+      card.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.setTimeout(() => card.classList.remove("highlight-target"), 2200);
+    }
+
+    function showPage(page, updateUrl = true) {
+      document.querySelectorAll(".app-page").forEach(section => {
+        section.hidden = section.dataset.page !== page;
+      });
+      document.querySelectorAll("[data-nav]").forEach(link => {
+        link.classList.toggle("active", link.dataset.nav === page);
+      });
+      const path = page === "analyze" ? "/" : `/${page}`;
+      if (updateUrl && location.pathname !== path) history.pushState({ page }, "", path);
+      if (page === "cards") loadHistory();
+      window.scrollTo({ top:0, behavior:"smooth" });
+    }
+
+    document.querySelectorAll("[data-nav]").forEach(link => {
+      link.addEventListener("click", event => {
+        event.preventDefault();
+        showPage(link.dataset.nav);
+      });
+    });
+    window.addEventListener("popstate", () => showPage(pageFromPath(), false));
+    showPage(pageFromPath(), false);
+
+    function preview(input, container, side) {
+      input.addEventListener("change", () => {
+        capturedFiles[side] = null;
+        resetCameraSlot(side);
+        delete manualGuides[side];
+        delete manualBoundaries[side];
+        if (side === "front") {
+          currentScanId = newScanId();
+        }
+        const image = container.querySelector("img");
+        const meta = container.querySelector(".photo-meta");
+        if (!input.files[0]) {
+          container.classList.remove("has-image");
+          meta.style.display = "none";
+          container.querySelector(".tag").textContent =
+            `${side[0].toUpperCase() + side.slice(1)} · ${side === "front" ? "required" : "recommended"}`;
+          return;
+        }
+        container.querySelector(".tag").textContent =
+          `${side[0].toUpperCase() + side.slice(1)} · selected`;
+        const source = URL.createObjectURL(input.files[0]);
+        image.src = source;
+        const probe = new Image();
+        probe.onload = () => {
+          const shortest = Math.min(probe.naturalWidth, probe.naturalHeight);
+          const lowResolution = shortest < 1000;
+          meta.textContent = `${probe.naturalWidth} × ${probe.naturalHeight}${lowResolution ? " · low resolution" : " · ready"}`;
+          meta.classList.toggle("warning", lowResolution);
+          meta.style.display = "block";
+        };
+        probe.src = source;
+        container.classList.add("has-image");
+      });
+    }
+    preview(front, document.querySelector("#front-drop"), "front");
+    preview(back, document.querySelector("#back-drop"), "back");
+
+    function resetCameraSlot(side) {
+      const slot = document.querySelector(`#camera-${side}-slot`);
+      slot.classList.remove("ready");
+      slot.querySelector("img").removeAttribute("src");
+      slot.querySelector("span").textContent = "Not captured";
+      document.querySelector("#camera-analyze").disabled = !capturedFiles.front;
+      updateCameraControls();
+    }
+
+    let cameraTarget = "front";
+
+    function updateCameraControls() {
+      const label = cameraTarget[0].toUpperCase() + cameraTarget.slice(1);
+      const captured = Boolean(capturedFiles[cameraTarget]);
+      const shutter = document.querySelector("#capture-photo");
+      const native = document.querySelector("#native-camera-trigger");
+      shutter.textContent = `${captured ? "Retake" : "Take"} picture for ${label}${captured ? " ✓" : ""}`;
+      native.textContent = `Open device camera for ${label}`;
+      shutter.classList.toggle("captured", captured);
+      document.querySelectorAll("[data-camera-side]").forEach(button => {
+        button.classList.toggle("active", button.dataset.cameraSide === cameraTarget);
+      });
+    }
+
+    function setCameraTarget(side) {
+      cameraTarget = side;
+      updateCameraControls();
+      cameraStatus.textContent =
+        `Selected ${side}. Align all four card corners inside the green frame.`;
+    }
+
+    function showCapturedPhoto(side, file, source, width, height) {
+      capturedFiles[side] = file;
+      delete manualGuides[side];
+      delete manualBoundaries[side];
+      if (side === "front") currentScanId = newScanId();
+      const container = document.querySelector(`#${side}-drop`);
+      container.querySelector("img").src = source;
+      container.querySelector(".tag").textContent =
+        `${side[0].toUpperCase() + side.slice(1)} · camera captured`;
+      container.classList.add("has-image");
+      const meta = container.querySelector(".photo-meta");
+      const lowResolution = Math.min(width, height) < 1000;
+      meta.textContent = `${width} × ${height}${lowResolution ? " · low resolution" : " · camera ready"}`;
+      meta.classList.toggle("warning", lowResolution);
+      meta.style.display = "block";
+      const slot = document.querySelector(`#camera-${side}-slot`);
+      slot.classList.add("ready");
+      slot.querySelector("img").src = source;
+      slot.querySelector("span").textContent = "Ready for analysis";
+      updateCameraControls();
+    }
+
+    function finishCapture(side) {
+      document.querySelector("#camera-analyze").disabled = !capturedFiles.front;
+      if (side === "front" && !capturedFiles.back) {
+        setCameraTarget("back");
+        cameraStatus.textContent =
+          "Front added to the front upload slot. Back is now selected.";
+      } else {
+        cameraStatus.textContent =
+          `${side[0].toUpperCase() + side.slice(1)} added to the ${side} upload slot.`;
+      }
+    }
+
+    function stopCamera() {
+      if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
+      cameraStream = null;
+      cameraVideo.srcObject = null;
+      cameraModal.hidden = true;
+    }
+
+    cameraMode.addEventListener("click", async () => {
+      cameraModal.hidden = false;
+      setCameraTarget(capturedFiles.front && !capturedFiles.back ? "back" : "front");
+      cameraStatus.textContent = "Starting rear camera…";
+      document.querySelector("#capture-photo").hidden = true;
+      document.querySelector("#native-camera-trigger").hidden = true;
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("Live camera access requires Safari/Chrome on HTTPS or localhost.");
+        }
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          audio:false,
+          video:{
+            facingMode:{ ideal:"environment" },
+            width:{ ideal:1920 },
+            height:{ ideal:2560 },
+          },
+        });
+        cameraVideo.srcObject = cameraStream;
+        await cameraVideo.play();
+        document.querySelector("#capture-photo").hidden = false;
+        cameraStatus.textContent = "Align all four card corners inside the green frame.";
+      } catch (error) {
+        document.querySelector("#native-camera-trigger").hidden = false;
+        cameraStatus.textContent =
+          `${error.message} Use the device camera button below instead.`;
+      }
+    });
+
+    document.querySelector("#close-camera").addEventListener("click", stopCamera);
+    cameraModal.addEventListener("click", event => {
+      if (event.target === cameraModal) stopCamera();
+    });
+
+    function capturePhoto() {
+      const side = cameraTarget;
+      if (!cameraStream || !cameraVideo.videoWidth) {
+        cameraStatus.textContent =
+          "Live preview is unavailable. Use the device camera button.";
+        document.querySelector("#native-camera-trigger").hidden = false;
+        return;
+      }
+      cameraCanvas.width = cameraVideo.videoWidth;
+      cameraCanvas.height = cameraVideo.videoHeight;
+      cameraCanvas.getContext("2d").drawImage(
+        cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height
+      );
+      cameraCanvas.toBlob(blob => {
+        if (!blob) {
+          cameraStatus.textContent = "The camera image could not be captured.";
+          return;
+        }
+        const file = new File(
+          [blob],
+          `card-${side}-${Date.now()}.jpg`,
+          { type:"image/jpeg" }
+        );
+        const source = URL.createObjectURL(blob);
+        showCapturedPhoto(
+          side, file, source, cameraCanvas.width, cameraCanvas.height
+        );
+        finishCapture(side);
+      }, "image/jpeg", 0.95);
+    }
+
+    document.querySelectorAll("[data-camera-side]").forEach(button => {
+      button.addEventListener(
+        "click", () => setCameraTarget(button.dataset.cameraSide)
+      );
+    });
+    document.querySelector("#capture-photo").addEventListener("click", capturePhoto);
+    const nativeCameraInput = document.querySelector("#native-camera-input");
+    document.querySelector("#native-camera-trigger").addEventListener(
+      "click", () => nativeCameraInput.click()
+    );
+    nativeCameraInput.addEventListener("change", () => {
+      const file = nativeCameraInput.files[0];
+      if (!file) return;
+      const side = cameraTarget;
+      const source = URL.createObjectURL(file);
+      const probe = new Image();
+      probe.onload = () => {
+        showCapturedPhoto(
+          side, file, source, probe.naturalWidth, probe.naturalHeight
+        );
+        finishCapture(side);
+        nativeCameraInput.value = "";
+      };
+      probe.src = source;
+    });
+    document.querySelector("#camera-analyze").addEventListener("click", () => {
+      stopCamera();
+      scan.click();
+    });
+
+    function updateBilling(billing) {
+      billingStatus = billing;
+      if (!billing) return;
+      planStatus.textContent = billing.is_developer
+        ? "Developer · unlimited"
+        : billing.is_pro
+          ? "Pro · unlimited"
+          : `Free · ${billing.remaining_today}/${billing.daily_limit} left today`;
+      document.querySelector("#pricing-usage").textContent = billing.is_unlimited
+        ? `Your ${billing.is_developer ? "Developer" : "Pro"} access includes unlimited analyses.`
+        : `${billing.used_today} of ${billing.daily_limit} free analyses used today.`;
+      document.querySelector("#settings-plan").textContent = billing.is_developer
+        ? "Developer access · unlimited analyses"
+        : billing.is_pro
+          ? "CardLens Pro · unlimited analyses"
+          : `CardLens Free · ${billing.remaining_today} of ${billing.daily_limit} analyses remaining today`;
+      document.querySelectorAll(".checkout-button").forEach(button => {
+        button.disabled = billing.is_unlimited || !billing.billing_configured;
+      });
+      document.querySelector("#manage-billing").hidden = !billing.is_pro;
+      document.querySelector("#settings-manage-billing").hidden = !billing.is_pro;
+      document.querySelector("#remove-back-reference").hidden =
+        !billing.back_reference_ready;
+      document.querySelector("#back-reference-message").textContent =
+        billing.back_reference_ready
+          ? "Ready · used for back corners, edges, and Surface when alignment succeeds."
+          : "No clean back reference saved · Surface stays Not assessed until this is ready.";
+      if (!billing.back_reference_ready) {
+        const preview = document.querySelector("#back-reference-preview");
+        preview.removeAttribute("src");
+        preview.classList.remove("has-image");
+      }
+      let adsDismissed = false;
+      try {
+        adsDismissed = sessionStorage.getItem("cardlens_pro_ads_dismissed") === "1";
+      } catch (error) {
+        adsDismissed = false;
+      }
+      document.querySelectorAll("[data-pro-ad]").forEach(ad => {
+        ad.hidden = billing.is_unlimited || adsDismissed;
+      });
+      if (!billing.billing_configured) {
+        document.querySelector("#billing-note").textContent =
+          "Payments are not configured yet. Add Stripe keys to enable Pro checkout.";
+      }
+    }
+
+    fetch("/api/status").then(r => r.json()).then(status => {
+      const modelText = status.trained_model
+        ? "Trained model ready" : "Heuristic mode · training required";
+      document.querySelector("#model-status").textContent = modelText;
+      document.querySelector("#settings-model").textContent = modelText;
+      updateBilling(status.billing);
+    }).catch(() => document.querySelector("#model-status").textContent = "Scanner offline");
+
+    planStatus.addEventListener("click", () => { pricingModal.hidden = false; });
+    document.querySelectorAll(".pro-ad-cta").forEach(button => {
+      button.addEventListener("click", () => { pricingModal.hidden = false; });
+    });
+    document.querySelectorAll(".pro-ad-close").forEach(button => {
+      button.addEventListener("click", () => {
+        try {
+          sessionStorage.setItem("cardlens_pro_ads_dismissed", "1");
+        } catch (error) {
+          // Session-only dismissal is optional when browser storage is blocked.
+        }
+        document.querySelectorAll("[data-pro-ad]").forEach(ad => {
+          ad.hidden = true;
+        });
+      });
+    });
+    document.querySelector("#settings-pricing").addEventListener(
+      "click", () => { pricingModal.hidden = false; }
+    );
+    document.querySelector("#close-pricing").addEventListener(
+      "click", () => { pricingModal.hidden = true; }
+    );
+    pricingModal.addEventListener("click", event => {
+      if (event.target === pricingModal) pricingModal.hidden = true;
+    });
+    document.querySelectorAll(".checkout-button").forEach(button => {
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          const response = await fetch("/api/billing/checkout", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body:JSON.stringify({ plan:button.dataset.plan }),
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || "Checkout could not start.");
+          window.location.assign(payload.url);
+        } catch (error) {
+          document.querySelector("#billing-note").textContent = error.message;
+          button.disabled = false;
+        }
+      });
+    });
+    async function openBillingPortal() {
+      const response = await fetch("/api/billing/portal", { method:"POST" });
+      const payload = await response.json();
+      if (response.ok) window.location.assign(payload.url);
+      else document.querySelector("#billing-note").textContent = payload.detail;
+    }
+    document.querySelector("#manage-billing").addEventListener(
+      "click", openBillingPortal
+    );
+    document.querySelector("#settings-manage-billing").addEventListener(
+      "click", openBillingPortal
+    );
+    document.querySelector("#clear-history").addEventListener("click", async () => {
+      if (!window.confirm("Clear all graded-card history on this device?")) return;
+      const response = await fetch("/api/history", { method:"DELETE" });
+      if (response.ok) loadHistory();
+    });
+    document.querySelector("#save-back-reference").addEventListener(
+      "click", async () => {
+        const input = document.querySelector("#back-reference-input");
+        const message = document.querySelector("#back-reference-message");
+        if (!input.files[0]) {
+          message.textContent = "Choose a clean back photo first.";
+          return;
+        }
+        message.textContent = "Checking and saving clean back reference…";
+        const form = new FormData();
+        form.append("image", input.files[0]);
+        const response = await fetch("/api/reference/back", {
+          method:"POST",
+          body:form,
+        });
+        const payload = await response.json();
+        if (response.ok) {
+          const preview = document.querySelector("#back-reference-preview");
+          if (input.files[0]) {
+            preview.src = URL.createObjectURL(input.files[0]);
+            preview.classList.add("has-image");
+          }
+          input.value = "";
+          updateBilling(payload.billing);
+          message.textContent =
+            "Ready · used for back corners, edges, and Surface when alignment succeeds.";
+        } else {
+          message.textContent = payload.detail || "Reference could not be saved.";
+        }
+      }
+    );
+    document.querySelector("#remove-back-reference").addEventListener(
+      "click", async () => {
+        const response = await fetch("/api/reference/back", { method:"DELETE" });
+        const payload = await response.json();
+        if (response.ok) {
+          const preview = document.querySelector("#back-reference-preview");
+          preview.removeAttribute("src");
+          preview.classList.remove("has-image");
+          updateBilling(payload.billing);
+        }
+      }
+    );
+
+    function escapeHtml(value) {
+      const element = document.createElement("div");
+      element.textContent = String(value ?? "");
+      return element.innerHTML;
+    }
+
+    function selectCatalogCard(card, rescan) {
+      selectedCardId = card.id;
+      const selected = document.querySelector("#prescan-selected-card");
+      selected.querySelector("span").textContent =
+        `${card.name} · ${card.set_name} · ${card.number}`;
+      selected.hidden = false;
+      document.querySelector("#prescan-card-results").innerHTML = "";
+      const identityResults = document.querySelector("#card-search-results");
+      if (identityResults) identityResults.innerHTML = "";
+      if (rescan) scan.click();
+    }
+
+    function renderCandidateCards(candidates) {
+      if (!Array.isArray(candidates) || !candidates.length) return "";
+      return `
+        <div class="candidate-list">
+          ${candidates.slice(0, 5).map((card, index) => `
+            <div class="card-search-result">
+              <div class="card-result-image${card.image_url ? "" : " missing"}">
+                <span>No image</span>
+                ${card.image_url ? `<img src="${card.image_url}" alt="" onerror="this.parentElement.classList.add('missing')">` : ""}
+              </div>
+              <span>
+                <b>${escapeHtml(card.name)}</b>
+                <small>${escapeHtml(card.set_name)} · ${escapeHtml(card.number)} · ${Math.round(Number(card.confidence || 0) * 100)}%</small>
+              </span>
+              <button type="button" data-candidate-index="${index}">This is my card</button>
+            </div>
+          `).join("")}
+        </div>`;
+    }
+
+    function bindCandidateButtons(container, candidates) {
+      if (!container || !Array.isArray(candidates)) return;
+      container.querySelectorAll("[data-candidate-index]").forEach(button => {
+        button.addEventListener("click", () => {
+          selectCatalogCard(
+            candidates[Number(button.dataset.candidateIndex)],
+            true,
+          );
+        });
+      });
+    }
+
+    function surfaceGateMessage(status, billing) {
+      if (status === "applied") return null;
+      if (status === "align_failed") {
+        return {
+          title: "Surface wasn’t graded",
+          body: "Your clean back is saved, but CardLens could not align it to this photo. Retake the back in even light or recalibrate.",
+          action: "Open clean back settings",
+        };
+      }
+      if (status === "no_back") {
+        return {
+          title: "Surface wasn’t graded",
+          body: "Add a back photo so CardLens can compare it with your saved clean back reference.",
+          action: null,
+        };
+      }
+      if (billing && billing.back_reference_ready) {
+        return {
+          title: "Surface wasn’t graded",
+          body: "A clean back is saved, but this scan still needs an alignable back photo.",
+          action: null,
+        };
+      }
+      return {
+        title: "Surface wasn’t graded",
+        body: "Save one sharp, undamaged Pokémon back in Clean back calibration. Surface stays Not assessed until that reference can be aligned.",
+        action: "Calibrate clean back",
+      };
+    }
+
+    function bindCardSearch(input, button, output, rescan = false) {
+      if (!input || !button || !output || button.dataset.bound === "true") return;
+      button.dataset.bound = "true";
+      const runSearch = async () => {
+        const query = input.value.trim();
+        if (!query) return;
+        button.disabled = true;
+        output.textContent = "Searching catalog…";
+        try {
+          const response = await fetch("/api/cards/search", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body:JSON.stringify({ query }),
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || "Catalog search failed.");
+          if (payload.developer_unlocked) {
+            updateBilling(payload.billing);
+            input.value = "";
+            output.innerHTML =
+              `<span><b>Developer access enabled.</b> Unlimited scans are active on this device.</span>`;
+            return;
+          }
+          output.innerHTML = payload.results.length
+            ? payload.results.map((card, index) => `
+                <div class="card-search-result">
+                  <div class="card-result-image${card.image_url ? "" : " missing"}">
+                    <span>No image</span>
+                    ${card.image_url ? `<img src="${card.image_url}" alt="" onerror="this.parentElement.classList.add('missing')">` : ""}
+                  </div>
+                  <span><b>${escapeHtml(card.name)}</b><small>${escapeHtml(card.set_name)} · ${escapeHtml(card.number)}</small></span>
+                  <button type="button" data-result-index="${index}">This is my card</button>
+                </div>`).join("")
+            : `<span>No cards found. Try a name plus card number, such as “Pikachu 065”.</span>`;
+          output.querySelectorAll("[data-result-index]").forEach(select => {
+            select.addEventListener("click", () => {
+              selectCatalogCard(
+                payload.results[Number(select.dataset.resultIndex)],
+                rescan,
+              );
+            });
+          });
+        } catch (error) {
+          output.textContent = error.message;
+        } finally {
+          button.disabled = false;
+        }
+      };
+      button.addEventListener("click", runSearch);
+      input.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          runSearch();
+        }
+      });
+    }
+
+    bindCardSearch(
+      document.querySelector("#prescan-card-query"),
+      document.querySelector("#prescan-card-search"),
+      document.querySelector("#prescan-card-results"),
+      false,
+    );
+    document.querySelector("#clear-selected-card").addEventListener("click", () => {
+      selectedCardId = null;
+      document.querySelector("#prescan-selected-card").hidden = true;
+    });
+
+    scan.addEventListener("click", async () => {
+      errorBox.style.display = "none";
+      results.style.display = "none";
+      const frontFile = capturedFiles.front || front.files[0];
+      const backFile = capturedFiles.back || back.files[0];
+      if (!frontFile) {
+        errorBox.textContent = "Add a front photo first.";
+        errorBox.style.display = "block";
+        return;
+      }
+      const form = new FormData();
+      form.append("front", frontFile);
+      if (backFile) form.append("back", backFile);
+      if (!currentScanId) currentScanId = newScanId();
+      form.append("scan_id", currentScanId);
+      if (selectedCardId) form.append("card_id", selectedCardId);
+      Object.entries(manualGuides).forEach(([side, guides]) => {
+        Object.entries(guides).forEach(([name, value]) => {
+          form.append(`${side}_${name}_mm`, value);
+        });
+      });
+      Object.entries(manualBoundaries).forEach(([side, boundary]) => {
+        form.append(`${side}_boundary`, JSON.stringify(boundary));
+      });
+      scan.disabled = true;
+      scan.textContent = "Inspecting pixels…";
+      try {
+        const response = await fetch("/api/grade", { method:"POST", body:form });
+        const data = await response.json();
+        if (!response.ok) {
+          if (response.status === 402) pricingModal.hidden = false;
+          throw new Error(data.detail || "The card could not be analyzed.");
+        }
+        updateBilling(data.billing);
+        currentScanId = data.scan_id || currentScanId;
+        const prediction = data.prediction;
+        const identity = document.querySelector("#identity");
+        const candidates = (data.identification && data.identification.candidates) || [];
+        const searchBlock = `
+          <div class="card-search-row">
+            <input id="card-search-query" type="search" placeholder="Card name and number, e.g. Pikachu 065">
+            <button id="card-search-button" type="button">Search</button>
+          </div>
+          <div class="card-search-results" id="card-search-results"></div>`;
+        if (data.identification && data.identification.match) {
+          const match = data.identification.match;
+          const matchDescription = match.match_method === "manual"
+            ? "Manually confirmed"
+            : match.match_method === "ml_visual"
+              ? `ML artwork match · ${Math.round(match.confidence * 100)}% confidence`
+              : `${Math.round(match.confidence * 100)}% visual confidence`;
+          const alternateCandidates = candidates.filter(card => card.id !== match.id);
+          identity.innerHTML = `
+            ${match.image_url ? `<img src="${match.image_url}" alt="${match.name} reference image">` : ""}
+            <div>
+              <small>Catalog match</small><strong>${escapeHtml(match.name)}</strong>
+              <span>${escapeHtml(match.set_name)} · ${escapeHtml(match.number)} · ${escapeHtml(matchDescription)}</span>
+              <div class="identity-actions">
+                <button type="button" id="wrong-card-toggle" class="secondary-button">Wrong card? Pick another</button>
+              </div>
+              <div id="wrong-card-panel" class="identity-search" hidden>
+                ${alternateCandidates.length ? `<span>Nearby visual candidates</span>${renderCandidateCards(alternateCandidates)}` : "<span>Search the catalog for the exact printing.</span>"}
+                ${searchBlock}
+              </div>
+            </div>`;
+          identity.style.display = "flex";
+          const wrongToggle = document.querySelector("#wrong-card-toggle");
+          const wrongPanel = document.querySelector("#wrong-card-panel");
+          if (wrongToggle && wrongPanel) {
+            wrongToggle.addEventListener("click", () => {
+              wrongPanel.hidden = !wrongPanel.hidden;
+            });
+          }
+          bindCandidateButtons(wrongPanel, alternateCandidates);
+        } else if (data.identification && data.identification.catalog_ready) {
+          identity.innerHTML = `
+            <div class="identity-search">
+              <strong>No confident card match</strong>
+              <span>Confirm a nearby candidate or search the English catalog for the exact printing.</span>
+              ${renderCandidateCards(candidates)}
+              ${searchBlock}
+            </div>`;
+          identity.style.display = "flex";
+          bindCandidateButtons(identity, candidates);
+        } else {
+          identity.innerHTML = `<div><strong>Card catalog is not synced</strong><span>Run drop-sync-card-catalog to enable identification.</span></div>`;
+          identity.style.display = "flex";
+        }
+        bindCardSearch(
+          document.querySelector("#card-search-query"),
+          document.querySelector("#card-search-button"),
+          document.querySelector("#card-search-results"),
+          true,
+        );
+        document.querySelector("#grade").textContent = prediction.grade.toFixed(1);
+        document.querySelector("#grade-label").textContent = prediction.label;
+        document.querySelector("#range").textContent =
+          `${prediction.low.toFixed(1)}–${prediction.high.toFixed(1)} range · ${prediction.confidence} confidence`;
+        const metricsHtml = data.categories.map(metric => {
+          const assessed = metric.score !== null && metric.score !== undefined;
+          const width = assessed ? Math.max(0, Math.min(100, metric.score * 10)) : 0;
+          return `
+            <div class="metric">
+              <span class="metric-copy"><b>${metric.name}</b><small>${metric.condition}</small></span>
+              <div class="bar"><i style="width:${width}%"></i></div>
+              <strong>${assessed ? Number(metric.score).toFixed(1) : "—"}</strong>
+              <div class="metric-detail">${escapeHtml(metric.detail || "")}</div>
+            </div>`;
+        }).join("");
+        const surfaceMetric = data.categories.find(metric => metric.key === "surface");
+        const gate = surfaceMetric && surfaceMetric.score == null
+          ? surfaceGateMessage(data.back_reference_status, data.billing)
+          : null;
+        const gateHtml = gate
+          ? `<div class="surface-gate" id="surface-gate">
+              <div><strong>${escapeHtml(gate.title)}</strong><span>${escapeHtml(gate.body)}</span></div>
+              ${gate.action ? `<button type="button" id="surface-gate-cta">${escapeHtml(gate.action)}</button>` : ""}
+            </div>`
+          : "";
+        document.querySelector("#metrics").innerHTML = metricsHtml + gateHtml;
+        const surfaceCta = document.querySelector("#surface-gate-cta");
+        if (surfaceCta) {
+          surfaceCta.addEventListener("click", openCleanBackSettings);
+        }
+        const warnings = data.warnings.length ? data.warnings.join(" ") : "Photo quality checks passed.";
+        document.querySelector("#warnings").textContent = warnings;
+        document.querySelector("#caveat").textContent = `${prediction.method}. ${prediction.caveat}`;
+        const visualReports = Array.isArray(data.visual_reports) ? data.visual_reports : [];
+        document.querySelector("#evidence").style.display = visualReports.length ? "block" : "none";
+        document.querySelector("#visual-reports").innerHTML = visualReports.map(report => {
+          const signals = report.condition_signals;
+          const cornerText = Object.entries(signals.corners)
+            .map(([name, value]) => `${name} ${Number(value).toFixed(1)}%`).join(" · ");
+          const edgeText = Object.entries(signals.edges)
+            .map(([name, value]) => `${name} ${Number(value).toFixed(1)}%`).join(" · ");
+          const defectCounts = signals.defect_counts || { edges:0, corners:0 };
+          const severityCounts = report.findings.reduce(
+            (counts, finding) => {
+              counts[finding.severity] = (counts[finding.severity] || 0) + 1;
+              return counts;
+            },
+            { high:0, medium:0, small:0 }
+          );
+          const findings = report.findings.length
+            ? `<details class="findings-dropdown">
+                <summary>
+                  <span>Detected findings (${report.findings.length})</span>
+                  <small>${severityCounts.high} high · ${severityCounts.medium} medium · ${severityCounts.small} small</small>
+                </summary>
+                <div class="findings-list">
+                  ${report.findings.map((finding, index) => `
+                    <button class="finding" type="button"
+                      data-finding-side="${report.side}" data-finding-index="${index}">
+                      <i class="finding-dot"></i>
+                      <span><b>${finding.type} · ${finding.location}</b>
+                        <small>${finding.severity} signal — ${finding.evidence}</small>
+                      </span>
+                    </button>`).join("")}
+                </div>
+              </details>`
+            : `<div class="clear">No localized whitening or glare signals exceeded the detection threshold.</div>`;
+          const sideKey = report.side.toLowerCase();
+          const guides = report.centering.guides;
+          const dimensions = report.centering.card_dimensions;
+          const sourceDimensions = report.source_dimensions;
+          const sourceBoundary = manualBoundaries[sideKey] || report.source_boundary;
+          const boundaryPoints = sourceBoundary
+            .map(point => `${point[0]},${point[1]}`).join(" ");
+          const handleRadius = Math.max(
+            10, Math.min(sourceDimensions.width, sourceDimensions.height) * 0.015
+          );
+          const line = (name, orientation, position) => `
+            <div class="drag-guide ${orientation}" data-guide="${name}"
+              data-mm="${report.centering.distance_mm[name]}"
+              style="${orientation === "vertical" ? "left" : "top"}:${position}%">
+              <span>${name[0].toUpperCase()} ${Number(report.centering.distance_mm[name]).toFixed(1)} mm</span>
+            </div>`;
+          return `
+            <article class="evidence-card">
+              <div class="source-stage">
+                <img class="source-annotated-image" src="${report.source_image}" alt="${report.side} original upload with detected physical card boundary">
+                <div class="source-adjust-canvas" data-side="${sideKey}"
+                  style="aspect-ratio:${sourceDimensions.width}/${sourceDimensions.height}" hidden>
+                  <img src="${report.raw_source_image}" alt="${report.side} original upload for boundary adjustment">
+                  <svg viewBox="0 0 ${sourceDimensions.width} ${sourceDimensions.height}">
+                    <polygon class="boundary-polygon" points="${boundaryPoints}"></polygon>
+                    ${sourceBoundary.map((point, index) => `
+                      <circle class="boundary-handle" data-boundary-index="${index}"
+                        cx="${point[0]}" cy="${point[1]}" r="${handleRadius}"></circle>
+                    `).join("")}
+                  </svg>
+                </div>
+                <div class="boundary-actions" hidden>
+                  <button type="button" class="apply-boundary">Apply boundary and reprocess</button>
+                  <button type="button" class="cancel-boundary secondary-button">Cancel</button>
+                </div>
+              </div>
+              <p class="image-caption">Original upload · green outline is the farthest physical edge used</p>
+              <div class="guide-editor boundary-editor" data-side="${sideKey}">
+                <div class="guide-actions">
+                  <button type="button" class="enable-boundary">Adjust physical card corners</button>
+                  ${manualBoundaries[sideKey] ? `<button type="button" class="reset-boundary secondary-button">Use automatic card boundary</button>` : ""}
+                </div>
+                <p>Enable adjustment, then drag all four corner handles around the physical card before applying.</p>
+              </div>
+              <div class="measurement-stage">
+                <img class="annotated-image" src="${report.image}" alt="${report.side} card with centering and defect annotations">
+                <div class="guide-canvas" data-side="${sideKey}" hidden>
+                  <img src="${report.card_image}" alt="${report.side} normalized card for manual guide adjustment">
+                  ${line("left", "vertical", guides.left / (dimensions.width - 1) * 100)}
+                  ${line("right", "vertical", guides.right / (dimensions.width - 1) * 100)}
+                  ${line("top", "horizontal", guides.top / (dimensions.height - 1) * 100)}
+                  ${line("bottom", "horizontal", guides.bottom / (dimensions.height - 1) * 100)}
+                </div>
+                <div class="guide-apply-actions" hidden>
+                  <button type="button" class="apply-guides">Apply and recalculate</button>
+                  <button type="button" class="cancel-guides">Cancel</button>
+                </div>
+              </div>
+              <p class="image-caption">Perspective-corrected border measurement</p>
+              <div class="finding-focus" hidden>
+                <img alt="Highlighted close-up of selected finding">
+                <div class="finding-focus-copy">
+                  <span><b></b><small></small></span>
+                  <button class="close-finding-focus" type="button">Close</button>
+                </div>
+              </div>
+              <div class="evidence-copy">
+                <h3>${report.side} inspection</h3>
+                <div class="measurements">
+                  <span class="measurement">Left/right ${report.centering.horizontal}</span>
+                  <span class="measurement">Top/bottom ${report.centering.vertical}</span>
+                  <span class="measurement">L ${report.centering.distance_mm.left.toFixed(1)}mm ↔ R ${report.centering.distance_mm.right.toFixed(1)}mm</span>
+                  <span class="measurement">T ${report.centering.distance_mm.top.toFixed(1)}mm ↕ B ${report.centering.distance_mm.bottom.toFixed(1)}mm</span>
+                </div>
+                <div class="guide-editor" data-side="${sideKey}">
+                  <div class="guide-actions">
+                    <button type="button" class="enable-guides">${report.centering.manual_override ? "Edit applied guides" : "Enable line adjustment"}</button>
+                    ${report.centering.manual_override ? `<button type="button" class="reset-guides">Use automatic detection</button>` : ""}
+                  </div>
+                  <p>Adjustment mode must be enabled before the green lines can be dragged directly on the card.</p>
+                </div>
+                <div class="signals">
+                  <div class="signal"><b>Corner evidence</b><span>${defectCounts.corners} findings (${Number(defectCounts.corner_weight || 0).toFixed(2)} severity-weighted) · pale/color-loss pixels: ${cornerText}.</span></div>
+                  <div class="signal"><b>Edge evidence</b><span>${defectCounts.edges} findings (${Number(defectCounts.edge_weight || 0).toFixed(2)} severity-weighted) · confirmed pale/whitening pixels: ${edgeText}. Medium findings count one-quarter of high findings.</span></div>
+                  <div class="signal"><b>Surface evidence</b><span>${signals.surface.reference_compared
+                    ? `Clean reference compared · ${signals.surface.anomaly_count} candidates (${Number(signals.surface.severity_weight || 0).toFixed(2)} severity-weighted)`
+                    : report.side === "Back"
+                      ? (
+                        data.back_reference_status === "align_failed"
+                          ? "Not assessed — clean back saved but alignment failed for this photo."
+                          : data.back_reference_status === "missing"
+                            ? "Not assessed — save a clean back reference in Settings first."
+                            : data.back_reference_status === "no_back"
+                              ? "Not assessed — add a back photo to use the saved clean reference."
+                              : "Not assessed — requires a saved clean back reference and usable back photo."
+                      )
+                      : "Front Surface is not graded; corner and edge zones are still inspected."
+                  } Glare ${Number(signals.surface.glare_percent).toFixed(1)}% · sharpness ${Number(signals.surface.sharpness_percent).toFixed(1)}%.</span></div>
+                </div>
+                ${findings}
+              </div>
+            </article>`;
+        }).join("");
+        document.querySelectorAll(".finding").forEach(button => {
+          button.addEventListener("click", () => {
+            const report = visualReports.find(
+              item => item.side === button.dataset.findingSide
+            );
+            const finding = report.findings[Number(button.dataset.findingIndex)];
+            const card = button.closest(".evidence-card");
+            const focus = card.querySelector(".finding-focus");
+            focus.querySelector("img").src = finding.crop_image || report.card_image;
+            focus.querySelector("b").textContent =
+              `${finding.type} · ${finding.location}`;
+            focus.querySelector("small").textContent =
+              `${finding.severity} signal — ${finding.evidence}`;
+            focus.hidden = false;
+            const annotated = card.querySelector(".annotated-image");
+            annotated.classList.remove("finding-target-flash");
+            void annotated.offsetWidth;
+            annotated.classList.add("finding-target-flash");
+            focus.scrollIntoView({ behavior:"smooth", block:"center" });
+          });
+        });
+        document.querySelectorAll(".close-finding-focus").forEach(button => {
+          button.addEventListener("click", () => {
+            button.closest(".finding-focus").hidden = true;
+          });
+        });
+        document.querySelectorAll(".enable-boundary").forEach(button => {
+          button.addEventListener("click", () => {
+            const card = button.closest(".evidence-card");
+            card.querySelector(".source-annotated-image").hidden = true;
+            card.querySelector(".source-adjust-canvas").hidden = false;
+            card.querySelector(".boundary-actions").hidden = false;
+          });
+        });
+        document.querySelectorAll(".boundary-handle").forEach(handle => {
+          handle.addEventListener("pointerdown", event => {
+            handle.setPointerCapture(event.pointerId);
+          });
+          handle.addEventListener("pointermove", event => {
+            if (!handle.hasPointerCapture(event.pointerId)) return;
+            const canvas = handle.closest(".source-adjust-canvas");
+            const svg = canvas.querySelector("svg");
+            const bounds = svg.getBoundingClientRect();
+            const viewBox = svg.viewBox.baseVal;
+            const x = Math.max(
+              0,
+              Math.min(
+                viewBox.width - 1,
+                (event.clientX - bounds.left) / bounds.width * viewBox.width,
+              ),
+            );
+            const y = Math.max(
+              0,
+              Math.min(
+                viewBox.height - 1,
+                (event.clientY - bounds.top) / bounds.height * viewBox.height,
+              ),
+            );
+            handle.setAttribute("cx", x);
+            handle.setAttribute("cy", y);
+            const points = [...svg.querySelectorAll(".boundary-handle")]
+              .sort((left, right) =>
+                Number(left.dataset.boundaryIndex) - Number(right.dataset.boundaryIndex)
+              )
+              .map(point => `${point.getAttribute("cx")},${point.getAttribute("cy")}`)
+              .join(" ");
+            svg.querySelector(".boundary-polygon").setAttribute("points", points);
+          });
+        });
+        document.querySelectorAll(".apply-boundary").forEach(button => {
+          button.addEventListener("click", () => {
+            const canvas = button.closest(".source-stage").querySelector(
+              ".source-adjust-canvas"
+            );
+            const points = [...canvas.querySelectorAll(".boundary-handle")]
+              .sort((left, right) =>
+                Number(left.dataset.boundaryIndex) - Number(right.dataset.boundaryIndex)
+              )
+              .map(point => [
+                Number(point.getAttribute("cx")),
+                Number(point.getAttribute("cy")),
+              ]);
+            manualBoundaries[canvas.dataset.side] = points;
+            scan.click();
+          });
+        });
+        document.querySelectorAll(".cancel-boundary").forEach(button => {
+          button.addEventListener("click", () => {
+            const card = button.closest(".evidence-card");
+            card.querySelector(".source-annotated-image").hidden = false;
+            card.querySelector(".source-adjust-canvas").hidden = true;
+            card.querySelector(".boundary-actions").hidden = true;
+          });
+        });
+        document.querySelectorAll(".reset-boundary").forEach(button => {
+          button.addEventListener("click", () => {
+            delete manualBoundaries[
+              button.closest(".boundary-editor").dataset.side
+            ];
+            scan.click();
+          });
+        });
+        document.querySelectorAll(".enable-guides").forEach(button => {
+          button.addEventListener("click", () => {
+            const card = button.closest(".evidence-card");
+            card.querySelector(".annotated-image").hidden = true;
+            card.querySelector(".guide-canvas").hidden = false;
+            card.querySelector(".guide-apply-actions").hidden = false;
+          });
+        });
+        document.querySelectorAll(".drag-guide").forEach(line => {
+          line.addEventListener("pointerdown", event => {
+            line.setPointerCapture(event.pointerId);
+          });
+          line.addEventListener("pointermove", event => {
+            if (!line.hasPointerCapture(event.pointerId)) return;
+            const canvas = line.closest(".guide-canvas");
+            const bounds = canvas.getBoundingClientRect();
+            const name = line.dataset.guide;
+            const vertical = line.classList.contains("vertical");
+            const physicalSize = vertical ? 63.5 : 88.9;
+            const totalPixels = vertical ? bounds.width : bounds.height;
+            const pointer = vertical
+              ? event.clientX - bounds.left
+              : event.clientY - bounds.top;
+            const minimum = 0.2 / physicalSize * totalPixels;
+            const maximum = 5.0 / physicalSize * totalPixels;
+            const fromFarEdge = name === "right" || name === "bottom";
+            const coordinate = fromFarEdge
+              ? Math.max(totalPixels - maximum, Math.min(totalPixels - minimum, pointer))
+              : Math.max(minimum, Math.min(maximum, pointer));
+            const fraction = coordinate / totalPixels;
+            const millimeters = (fromFarEdge ? 1 - fraction : fraction) * physicalSize;
+            line.style[vertical ? "left" : "top"] = `${fraction * 100}%`;
+            line.dataset.mm = millimeters.toFixed(1);
+            line.querySelector("span").textContent =
+              `${name[0].toUpperCase()} ${millimeters.toFixed(1)} mm`;
+          });
+        });
+        document.querySelectorAll(".apply-guides").forEach(button => {
+          button.addEventListener("click", () => {
+            const canvas = button.closest(".measurement-stage").querySelector(".guide-canvas");
+            const side = canvas.dataset.side;
+            manualGuides[side] = Object.fromEntries(
+              [...canvas.querySelectorAll("[data-guide]")].map(line => [
+                line.dataset.guide,
+                line.dataset.mm,
+              ])
+            );
+            scan.click();
+          });
+        });
+        document.querySelectorAll(".cancel-guides").forEach(button => {
+          button.addEventListener("click", () => {
+            const card = button.closest(".evidence-card");
+            card.querySelector(".annotated-image").hidden = false;
+            card.querySelector(".guide-canvas").hidden = true;
+            card.querySelector(".guide-apply-actions").hidden = true;
+          });
+        });
+        document.querySelectorAll(".reset-guides").forEach(button => {
+          button.addEventListener("click", () => {
+            delete manualGuides[button.closest(".guide-editor").dataset.side];
+            scan.click();
+          });
+        });
+        results.style.display = "block";
+        results.scrollIntoView({ behavior:"smooth", block:"nearest" });
+      } catch (error) {
+        errorBox.textContent = error.message;
+        errorBox.style.display = "block";
+      } finally {
+        scan.disabled = false;
+        scan.textContent = "Analyze card";
+      }
+    });
+  </script>
+</body>
+</html>

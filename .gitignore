@@ -7,3 +7,4 @@ data/*
 !data/state.json
 dist/
 *.egg-info/
+models/*.joblib
